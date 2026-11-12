@@ -1,0 +1,43 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    background-color: #0b070f;
+    color: #f7f1e5;
+  }
+  
+  h1, h2, h3, .font-serif-display {
+    font-family: 'Cormorant Garamond', Georgia, serif;
+  }
+}
+
+/* Gorgeous Vibrant Luxury utilities */
+.luxury-glass {
+  background: rgba(22, 14, 30, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(229, 179, 107, 0.18);
+}
+
+.gold-gradient-text {
+  background: linear-gradient(135deg, #f6e2bb 0%, #e5b36b 35%, #d19747 70%, #ffdf9e 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.rose-gold-gradient {
+  background: linear-gradient(135deg, #ff758c 0%, #ff7eb3 50%, #e5b36b 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.gorgeous-card-glow {
+  box-shadow: 0 10px 30px -10px rgba(184, 75, 110, 0.15), 0 0 15px 0 rgba(229, 179, 107, 0.08);
+}
+
+.gorgeous-btn-gradient {
+  background: linear-gradient(135deg, #f3cf8a 0%, #d49845 50%, #b84b6e 100%);
+}

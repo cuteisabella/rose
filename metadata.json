@@ -1,0 +1,6 @@
+{
+  "name": "Isabella Rose | Official VIP Blog & Members Lounge",
+  "description": "Exclusive lifestyle, fashion, food guides, daily auto-generated stories, and VIP premium adult member lounge for Isabella Rose.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
