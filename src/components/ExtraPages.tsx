@@ -19,10 +19,12 @@ import {
 } from 'lucide-react';
 import { UserSubscription, ExtraPageItem, SiteSettings, FrontEditableTexts } from '../types';
 import { ISABELLA_AVATAR_IMG, ISABELLA_HERO_IMG, resolveAssetUrl } from '../defaultStore';
+import { renderRichMarkdown } from '../utils/markdown';
 
 interface ExtraPagesProps {
   activePage: 'about' | 'tips' | 'membership' | 'contact' | 'custom';
   customPage?: ExtraPageItem | null;
+  pages?: ExtraPageItem[];
   subscription: UserSubscription;
   settings?: SiteSettings;
   frontTexts?: FrontEditableTexts;
@@ -37,6 +39,7 @@ interface ExtraPagesProps {
 export const ExtraPages: React.FC<ExtraPagesProps> = ({
   activePage,
   customPage,
+  pages = [],
   settings,
   frontTexts,
   isLiveEditorActive = false,
@@ -55,6 +58,10 @@ export const ExtraPages: React.FC<ExtraPagesProps> = ({
   const formattedMonthly = vipMonthlyPrice < 10 ? `0${vipMonthlyPrice.toFixed(2)}` : vipMonthlyPrice.toFixed(2);
   const formattedQuarterly = blackDiamondPrice.toFixed(2);
 
+  const aboutPageData = pages.find((p) => p.slug === 'about' && p.status === 'published');
+  const membershipPageData = pages.find((p) => p.slug === 'membership' && p.status === 'published');
+  const conciergePageData = pages.find((p) => p.slug === 'concierge' && p.status === 'published');
+
   const handleImageFileUpload = (field: keyof SiteSettings, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !onUpdateSettingsImage) return;
@@ -70,25 +77,34 @@ export const ExtraPages: React.FC<ExtraPagesProps> = ({
   return (
     <div className="py-16 bg-gradient-to-b from-[#0b0710] via-[#140b1e] to-[#09080b] min-h-[75vh]">
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* CUSTOM ADMIN EXTRA PAGE (Pure English) */}
+        {/* CUSTOM ADMIN EXTRA PAGE (Pure English + Rich Text + Banner + Inline Images) */}
         {activePage === 'custom' && customPage && (
-          <div className="max-w-3xl mx-auto bg-[#161021]/90 border border-[#e5b36b]/30 rounded-3xl p-8 md:p-10 space-y-6 gorgeous-card-glow">
-            <div className="flex items-center gap-2 text-xs text-[#e5b36b] uppercase tracking-widest font-semibold">
-              <FileText className="w-4 h-4" />
-              <span>Featured Page · Updated {customPage.lastUpdated}</span>
-            </div>
-            <h1 className="text-3xl md:text-5xl font-serif-display font-bold text-white tracking-tight">
-              {customPage.titleEn}
-            </h1>
-            <div className="border-t border-white/10 pt-6 space-y-4 text-sm md:text-base text-stone-200 leading-relaxed">
-              {customPage.content.split('\n\n').map((para, idx) => (
-                <p key={idx}>{para}</p>
-              ))}
+          <div className="max-w-3xl mx-auto bg-[#161021]/90 border border-[#e5b36b]/30 rounded-3xl overflow-hidden gorgeous-card-glow">
+            {customPage.bannerImage && (
+              <div className="aspect-16/7 w-full overflow-hidden border-b border-white/10 bg-black">
+                <img
+                  src={resolveAssetUrl(customPage.bannerImage)}
+                  alt={customPage.titleEn}
+                  className="w-full h-full object-cover"
+                />
+              </div>
+            )}
+            <div className="p-8 md:p-10 space-y-6">
+              <div className="flex items-center gap-2 text-xs text-[#e5b36b] uppercase tracking-widest font-semibold">
+                <FileText className="w-4 h-4" />
+                <span>Featured Page · Updated {customPage.lastUpdated}</span>
+              </div>
+              <h1 className="text-3xl md:text-5xl font-serif-display font-bold text-white tracking-tight">
+                {customPage.titleEn}
+              </h1>
+              <div className="border-t border-white/10 pt-6 space-y-4 text-sm md:text-base text-stone-200 leading-relaxed">
+                {renderRichMarkdown(customPage.content)}
+              </div>
             </div>
           </div>
         )}
 
-        {/* RICH ABOUT ISABELLA PAGE */}
+        {/* RICH ABOUT ISABELLA PAGE (Unified with Extra Pages Management) */}
         {activePage === 'about' && (
           <div className="space-y-12">
             <div className="text-center max-w-2xl mx-auto">
@@ -98,13 +114,13 @@ export const ExtraPages: React.FC<ExtraPagesProps> = ({
               {isLiveEditorActive && onUpdateFrontText ? (
                 <input
                   type="text"
-                  value={frontTexts?.aboutHeadline || 'Meet Isabella Rose'}
+                  value={frontTexts?.aboutHeadline || aboutPageData?.titleEn || 'Meet Isabella Rose'}
                   onChange={(e) => onUpdateFrontText('aboutHeadline', e.target.value)}
                   className="w-full text-center text-3xl font-serif-display font-bold text-white bg-black/60 border border-amber-400 rounded-lg px-3 py-1.5"
                 />
               ) : (
                 <h1 className="text-4xl md:text-5xl font-serif-display font-bold text-white tracking-tight">
-                  {frontTexts?.aboutHeadline || 'Meet Isabella Rose'}
+                  {aboutPageData?.titleEn || frontTexts?.aboutHeadline || 'Meet Isabella Rose'}
                 </h1>
               )}
               <p className="text-sm md:text-base text-stone-300 mt-3 leading-relaxed">
@@ -113,10 +129,10 @@ export const ExtraPages: React.FC<ExtraPagesProps> = ({
             </div>
 
             {/* Portrait + Biography Card */}
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-8 items-center bg-[#161021]/90 p-6 md:p-10 rounded-3xl border border-[#e5b36b]/25 gorgeous-card-glow">
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-8 items-start bg-[#161021]/90 p-6 md:p-10 rounded-3xl border border-[#e5b36b]/25 gorgeous-card-glow">
               <div className="md:col-span-5 relative">
                 <img
-                  src={resolveAssetUrl(settings?.aboutImage, ISABELLA_AVATAR_IMG)}
+                  src={resolveAssetUrl(aboutPageData?.bannerImage || settings?.aboutImage, ISABELLA_AVATAR_IMG)}
                   alt="Isabella Rose portrait"
                   className="w-full aspect-square object-cover rounded-2xl border border-[#e5b36b]/40 shadow-2xl"
                 />
@@ -140,25 +156,28 @@ export const ExtraPages: React.FC<ExtraPagesProps> = ({
                 )}
               </div>
               <div className="md:col-span-7 space-y-4 text-sm text-stone-200 leading-relaxed">
-                <h2 className="text-2xl md:text-3xl font-serif-display font-semibold text-white">
-                  "Sensuality is power in its most poetic, unapologetic form."
-                </h2>
                 {isLiveEditorActive && onUpdateFrontText ? (
                   <textarea
-                    rows={5}
+                    rows={6}
                     value={frontTexts?.aboutBio || ''}
                     onChange={(e) => onUpdateFrontText('aboutBio', e.target.value)}
                     className="w-full bg-black/70 border border-amber-400 rounded-lg p-3 text-sm text-stone-100 leading-relaxed"
                   />
+                ) : aboutPageData?.content ? (
+                  <div className="space-y-4">
+                    {renderRichMarkdown(aboutPageData.content)}
+                  </div>
                 ) : (
-                  <p>
-                    {frontTexts?.aboutBio ||
-                      'Born with an insatiable devotion to European aesthetics, I spent my early twenties modeling in Milanese ateliers and documenting clandestine supper clubs across Saint-Germain-des-Prés. What began as a private travel diary evolved into a global community of over 1.2 million admirers.'}
-                  </p>
+                  <>
+                    <h2 className="text-2xl md:text-3xl font-serif-display font-semibold text-white">
+                      "Sensuality is power in its most poetic, unapologetic form."
+                    </h2>
+                    <p>
+                      {frontTexts?.aboutBio ||
+                        'Born with an insatiable devotion to European aesthetics, I spent my early twenties modeling in Milanese ateliers and documenting clandestine supper clubs across Saint-Germain-des-Prés. What began as a private travel diary evolved into a global community of over 1.2 million admirers.'}
+                    </p>
+                  </>
                 )}
-                <p>
-                  Because mainstream social platforms sanitize artistic intimacy and suppress authentic expression, I built this independent sanctuary. Every photograph, 4K midnight reel, and candid diary entry here is published directly from my studio—unfiltered, algorithm-free, and strictly protected for my VIP Inner Circle.
-                </p>
 
                 <div className="pt-4 border-t border-white/10 grid grid-cols-3 gap-4">
                   <div>
@@ -267,11 +286,21 @@ export const ExtraPages: React.FC<ExtraPagesProps> = ({
                 Discreet VIP Society
               </span>
               <h1 className="text-4xl md:text-5xl font-serif-display font-bold text-white tracking-tight">
-                Premium <span className="rose-gold-gradient">Membership Tiers</span>
+                {membershipPageData?.titleEn || (
+                  <>
+                    Premium <span className="rose-gold-gradient">Membership Tiers</span>
+                  </>
+                )}
               </h1>
-              <p className="text-sm text-stone-300 mt-3 leading-relaxed">
-                Step past the velvet curtain. Unlock Isabella's uncompressed adult boudoir galleries, 4K midnight video diaries, and priority VIP concierge privileges.
-              </p>
+              {membershipPageData?.content ? (
+                <div className="mt-4 text-sm text-stone-300 space-y-3 text-left bg-[#161021]/70 border border-[#e5b36b]/20 rounded-2xl p-6">
+                  {renderRichMarkdown(membershipPageData.content)}
+                </div>
+              ) : (
+                <p className="text-sm text-stone-300 mt-3 leading-relaxed">
+                  Step past the velvet curtain. Unlock Isabella's uncompressed adult boudoir galleries, 4K midnight video diaries, and priority VIP concierge privileges.
+                </p>
+              )}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -383,7 +412,7 @@ export const ExtraPages: React.FC<ExtraPagesProps> = ({
                 />
               ) : (
                 <h1 className="text-4xl md:text-5xl font-serif-display font-bold text-white tracking-tight">
-                  {frontTexts?.conciergeHeadline || 'Private Concierge'}
+                  {conciergePageData?.titleEn || frontTexts?.conciergeHeadline || 'Private Concierge'}
                 </h1>
               )}
               {isLiveEditorActive && onUpdateFrontText ? (
@@ -393,6 +422,10 @@ export const ExtraPages: React.FC<ExtraPagesProps> = ({
                   onChange={(e) => onUpdateFrontText('conciergeDescription', e.target.value)}
                   className="w-full mt-3 text-sm text-stone-200 bg-black/60 border border-amber-400 rounded-lg p-2"
                 />
+              ) : conciergePageData?.content ? (
+                <div className="mt-4 text-sm text-stone-300 space-y-3 text-left bg-[#161021]/70 border border-[#e5b36b]/20 rounded-2xl p-5">
+                  {renderRichMarkdown(conciergePageData.content)}
+                </div>
               ) : (
                 <p className="text-sm text-stone-300 mt-3 leading-relaxed">
                   {frontTexts?.conciergeDescription ||
@@ -406,7 +439,7 @@ export const ExtraPages: React.FC<ExtraPagesProps> = ({
               <div className="lg:col-span-5 space-y-5">
                 <div className="rounded-3xl overflow-hidden border border-[#e5b36b]/30 bg-[#161021] gorgeous-card-glow">
                   <img
-                    src={resolveAssetUrl(settings?.conciergeImage, ISABELLA_HERO_IMG)}
+                    src={resolveAssetUrl(conciergePageData?.bannerImage || settings?.conciergeImage, ISABELLA_HERO_IMG)}
                     alt="Isabella Rose Concierge"
                     className="w-full h-52 object-cover"
                   />

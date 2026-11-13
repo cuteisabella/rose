@@ -15,6 +15,8 @@ import {
 } from 'lucide-react';
 import { BlogPost, CommentItem, UserSubscription } from '../types';
 import { resolveAssetUrl } from '../defaultStore';
+import { renderRichMarkdown } from '../utils/markdown';
+import { ShareUnlockGatePanel } from './ShareUnlockModal';
 
 interface PostDetailModalProps {
   post: BlogPost | null;
@@ -23,7 +25,7 @@ interface PostDetailModalProps {
   unlockedShareIds: string[];
   onClose: () => void;
   onOpenVIPModal: () => void;
-  onShareToUnlock: (id: string) => void;
+  onVerifiedShareUnlock: (id: string) => void;
   onLikePost: (id: string) => void;
   onAddComment: (postId: string, postTitle: string, name: string, email: string, text: string) => void;
 }
@@ -35,7 +37,7 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
   unlockedShareIds,
   onClose,
   onOpenVIPModal,
-  onShareToUnlock,
+  onVerifiedShareUnlock,
   onLikePost,
   onAddComment
 }) => {
@@ -149,20 +151,15 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
                   {post.isShareToUnlock ? 'Share to Unlock Complete Article' : 'VIP Exclusive Private Vault'}
                 </h3>
                 <p className="text-xs text-stone-300 max-w-md mb-5 leading-relaxed">
-                  This complete article is sealed. {post.isShareToUnlock ? 'Share on social media below to unlock free reading access immediately, or join VIP for total vault access.' : 'Upgrade to VIP Inner Circle ($05.99/mo) to read immediately.'}
+                  This complete article is sealed. {post.isShareToUnlock ? 'Share on a social network below and confirm completion to unlock free reading access, or join VIP for total vault access.' : 'Upgrade to VIP Inner Circle ($05.99/mo) to read immediately.'}
                 </p>
                 {post.isShareToUnlock && (
-                  <div className="flex flex-wrap items-center justify-center gap-2 mb-4">
-                    {['Facebook', 'Twitter / X', 'WhatsApp'].map((net) => (
-                      <button
-                        key={net}
-                        onClick={() => onShareToUnlock(post.id)}
-                        className="px-4 py-2 rounded-lg text-xs font-semibold bg-sky-600 hover:bg-sky-500 text-white flex items-center gap-1.5"
-                      >
-                        <Share2 className="w-3.5 h-3.5" />
-                        Share on {net}
-                      </button>
-                    ))}
+                  <div className="w-full max-w-lg mb-4">
+                    <ShareUnlockGatePanel
+                      itemId={post.id}
+                      itemTitle={post.titleEn}
+                      onVerifiedUnlock={onVerifiedShareUnlock}
+                    />
                   </div>
                 )}
                 {post.isPrivateVIP && (
@@ -204,31 +201,7 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
             </div>
           ) : (
             <div className="prose prose-invert max-w-none text-stone-200 space-y-4 leading-relaxed text-sm md:text-base">
-              {post.content.split('\n\n').map((block, idx) => {
-                const trimmed = block.trim();
-                if (trimmed.startsWith('## ')) {
-                  return (
-                    <h3
-                      key={idx}
-                      className="text-xl md:text-2xl font-serif-display font-bold text-[#f6e2bb] pt-3"
-                    >
-                      {trimmed.replace(/^##\s+/, '')}
-                    </h3>
-                  );
-                }
-                if (trimmed.startsWith('### ')) {
-                  return (
-                    <h4 key={idx} className="text-lg font-serif-display font-semibold text-white pt-2">
-                      {trimmed.replace(/^###\s+/, '')}
-                    </h4>
-                  );
-                }
-                return (
-                  <p key={idx} className="leading-relaxed">
-                    {trimmed}
-                  </p>
-                );
-              })}
+              {renderRichMarkdown(post.content)}
 
               {post.optionalVideoLink && (
                 <div className="mt-6 aspect-video rounded-xl overflow-hidden border border-stone-800 bg-black">

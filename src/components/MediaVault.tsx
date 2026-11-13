@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { VideoItem, UserSubscription } from '../types';
 import { resolveAssetUrl } from '../defaultStore';
+import { ShareUnlockGatePanel } from './ShareUnlockModal';
 
 interface MediaVaultProps {
   videos: VideoItem[];
@@ -22,6 +23,7 @@ interface MediaVaultProps {
   subscription: UserSubscription;
   onOpenVIPModal: () => void;
   onShareToUnlock: (id: string) => void;
+  onVerifiedShareUnlock: (id: string) => void;
   unlockedShareIds: string[];
 }
 
@@ -31,6 +33,7 @@ export const MediaVault: React.FC<MediaVaultProps> = ({
   subscription,
   onOpenVIPModal,
   onShareToUnlock,
+  onVerifiedShareUnlock,
   unlockedShareIds
 }) => {
   const [filter, setFilter] = useState<string>('All');
@@ -40,10 +43,12 @@ export const MediaVault: React.FC<MediaVaultProps> = ({
 
   const allFilters = ['All', ...categories];
 
-  const filteredVideos = videos.filter(v => {
-    if (filter === 'All') return true;
-    return v.category === filter;
-  });
+  const filteredVideos = videos
+    .filter((v) => v.status === 'Published')
+    .filter(v => {
+      if (filter === 'All') return true;
+      return v.category === filter;
+    });
 
   const handleOpenItem = (item: VideoItem) => {
     setSelectedVideo(item);
@@ -239,21 +244,19 @@ export const MediaVault: React.FC<MediaVaultProps> = ({
                   <h3 className="text-2xl font-serif-display font-bold text-white mb-2">
                     Private Member Access Required
                   </h3>
-                  <p className="text-xs text-stone-300 mb-6 leading-relaxed">
-                    This uncut media is locked for Isabella's VIP & Black Diamond members. Upgrade your subscription ($05.99/mo) to unlock immediately.
+                  <p className="text-xs text-stone-300 mb-5 leading-relaxed">
+                    This uncut media is locked for Isabella's VIP &amp; Black Diamond members. {selectedVideo.isShareToUnlock ? 'Share on a social network below and confirm completion to unlock free access, or join VIP ($05.99/mo) immediately.' : 'Upgrade your subscription ($05.99/mo) to unlock immediately.'}
                   </p>
+                  {selectedVideo.isShareToUnlock && (
+                    <div className="mb-4 text-left">
+                      <ShareUnlockGatePanel
+                        itemId={selectedVideo.id}
+                        itemTitle={selectedVideo.titleEn}
+                        onVerifiedUnlock={onVerifiedShareUnlock}
+                      />
+                    </div>
+                  )}
                   <div className="flex flex-wrap items-center justify-center gap-3">
-                    {selectedVideo.isShareToUnlock && (
-                      <button
-                        onClick={() => {
-                          onShareToUnlock(selectedVideo.id);
-                        }}
-                        className="px-4 py-2 rounded-lg text-xs font-semibold bg-sky-600 hover:bg-sky-500 text-white flex items-center gap-1.5"
-                      >
-                        <Share2 className="w-3.5 h-3.5" />
-                        Share on Social to Unlock Free
-                      </button>
-                    )}
                     <button
                       onClick={() => {
                         setSelectedVideo(null);

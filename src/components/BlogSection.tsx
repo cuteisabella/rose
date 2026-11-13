@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { BlogPost, CommentItem, FrontEditableTexts, UserSubscription } from '../types';
 import { resolveAssetUrl } from '../defaultStore';
+import { stripMarkdownPreview } from '../utils/markdown';
 
 interface BlogSectionProps {
   blogs: BlogPost[];
@@ -47,14 +48,16 @@ export const BlogSection: React.FC<BlogSectionProps> = ({
 
   const allCategories = ['All', ...categories];
 
-  const filteredBlogs = blogs.filter(post => {
-    const matchesCategory = selectedCategory === 'All' || post.category === selectedCategory;
-    const matchesSearch = searchQuery === '' || 
-      post.titleEn.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      post.subtitle.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      post.titleBn.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesCategory && matchesSearch;
-  });
+  const filteredBlogs = blogs
+    .filter((post) => post.status === 'published')
+    .filter(post => {
+      const matchesCategory = selectedCategory === 'All' || post.category === selectedCategory;
+      const matchesSearch = searchQuery === '' || 
+        post.titleEn.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        post.subtitle.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        post.titleBn.toLowerCase().includes(searchQuery.toLowerCase());
+      return matchesCategory && matchesSearch;
+    });
 
   const sectionTitle = frontTexts?.blogSectionTitle || 'Isabella’s Personal Chronicles';
   const sectionSubtitle =

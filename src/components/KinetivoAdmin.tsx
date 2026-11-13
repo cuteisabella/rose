@@ -3,7 +3,6 @@ import {
   Plus, 
   Trash2, 
   Edit3, 
-  Eye, 
   Video, 
   FileText, 
   Layers, 
@@ -14,18 +13,21 @@ import {
   Check, 
   X, 
   Upload, 
-  Key, 
   Lock, 
-  Unlock, 
   Download, 
-  RotateCcw, 
   Sparkles, 
   ExternalLink,
   ShieldCheck,
-  ChevronDown,
   Globe,
   Code,
-  GitBranch
+  GitBranch,
+  Save,
+  Search,
+  ArrowUp,
+  ArrowDown,
+  Image as ImageIcon,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { 
   AppStoreData, 
@@ -33,8 +35,7 @@ import {
   BlogPost, 
   TipItem,
   ExtraPageItem, 
-  CommentItem, 
-  MemberItem, 
+  NavMenuItem,
   SiteSettings,
   FrontEditableTexts
 } from '../types';
@@ -42,8 +43,12 @@ import {
   PRESET_THUMBNAILS,
   resolveAssetUrl,
   generateAutoSeoTips,
-  generateAutoSeoBlogs
+  generateAutoSeoBlogs,
+  DEFAULT_HEADER_MENU,
+  DEFAULT_FOOTER_MENU,
+  formatTodayDate
 } from '../defaultStore';
+import { renderRichMarkdown } from '../utils/markdown';
 
 interface KinetivoAdminProps {
   store: AppStoreData;
@@ -86,11 +91,59 @@ export const KinetivoAdmin: React.FC<KinetivoAdminProps> = ({
   const [newCategoryName, setNewCategoryName] = useState('');
   const [selectedBlogCategoryFilter, setSelectedBlogCategoryFilter] = useState<string>('All');
 
+  // Rich Editor Preview states
+  const [pagePreviewMode, setPagePreviewMode] = useState(false);
+  const [blogPreviewMode, setBlogPreviewMode] = useState(false);
+  const [tipPreviewMode, setTipPreviewMode] = useState(false);
+
+  // Explicit Save Settings state
+  const [lastSavedLabel, setLastSavedLabel] = useState<string | null>(null);
+
   // Inline Admin Notice (replaces blocked window.alert)
   const [adminNotice, setAdminNotice] = useState<string | null>(null);
   const notifyAdmin = (msg: string) => {
     setAdminNotice(msg);
     setTimeout(() => setAdminNotice(null), 4000);
+  };
+
+  const handleExplicitSaveSettings = () => {
+    try {
+      localStorage.setItem('isabella_store_data', JSON.stringify(store));
+    } catch {
+      // ignore storage quota errors
+    }
+    const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    setLastSavedLabel(`Saved at ${timeStr}`);
+    notifyAdmin('✨ All Settings, Menus, SEO Tags & Changes Saved & Published!');
+  };
+
+  // Menu Management Helpers (Header / Footer)
+  const updateMenuList = (
+    field: 'headerMenuItems' | 'footerMenuItems',
+    updater: (items: NavMenuItem[]) => NavMenuItem[]
+  ) => {
+    onUpdateStore((prev) => {
+      const fallback = field === 'headerMenuItems' ? DEFAULT_HEADER_MENU : DEFAULT_FOOTER_MENU;
+      const current = prev.settings[field] && prev.settings[field]!.length > 0 ? prev.settings[field]! : fallback;
+      return {
+        ...prev,
+        settings: {
+          ...prev.settings,
+          [field]: updater(current)
+        }
+      };
+    });
+  };
+
+  const handleMoveMenuItem = (field: 'headerMenuItems' | 'footerMenuItems', index: number, dir: -1 | 1) => {
+    updateMenuList(field, (items) => {
+      const nextIdx = index + dir;
+      if (nextIdx < 0 || nextIdx >= items.length) return items;
+      const copy = [...items];
+      const [moved] = copy.splice(index, 1);
+      copy.splice(nextIdx, 0, moved);
+      return copy;
+    });
   };
 
   // Save Video
@@ -108,6 +161,16 @@ export const KinetivoAdmin: React.FC<KinetivoAdminProps> = ({
 
     setIsVideoModalOpen(false);
     setEditingVideo(null);
+    notifyAdmin('Media item saved!');
+  };
+
+  const handleToggleVideoStatus = (id: string) => {
+    onUpdateStore(prev => ({
+      ...prev,
+      videos: prev.videos.map(v =>
+        v.id === id ? { ...v, status: v.status === 'Published' ? 'Draft' : 'Published' } : v
+      )
+    }));
   };
 
   // Delete Video
@@ -142,6 +205,16 @@ export const KinetivoAdmin: React.FC<KinetivoAdminProps> = ({
 
     setIsBlogModalOpen(false);
     setEditingBlog(null);
+    notifyAdmin('Blog post saved!');
+  };
+
+  const handleToggleBlogStatus = (id: string) => {
+    onUpdateStore(prev => ({
+      ...prev,
+      blogs: prev.blogs.map(b =>
+        b.id === id ? { ...b, status: b.status === 'published' ? 'draft' : 'published' } : b
+      )
+    }));
   };
 
   // Toggle Featured Blog on Home
@@ -176,6 +249,16 @@ export const KinetivoAdmin: React.FC<KinetivoAdminProps> = ({
 
     setIsTipModalOpen(false);
     setEditingTip(null);
+    notifyAdmin('Masterclass tip saved!');
+  };
+
+  const handleToggleTipStatus = (id: string) => {
+    onUpdateStore(prev => ({
+      ...prev,
+      tips: prev.tips.map(t =>
+        t.id === id ? { ...t, status: t.status === 'published' ? 'draft' : 'published' } : t
+      )
+    }));
   };
 
   // Toggle Featured Tip on Home
@@ -210,24 +293,24 @@ export const KinetivoAdmin: React.FC<KinetivoAdminProps> = ({
   // Helper: Word counter
   const countWords = (text: string) => text.trim().split(/\s+/).filter(Boolean).length;
 
-  // Auto-Publish 5 SEO-Complete Daily Tips (450-550 words each)
+  // Auto-Publish 5 SEO-Complete Daily Tips (450+ words each)
   const handleAutoPublishDailyTips = () => {
     const newTips = generateAutoSeoTips();
     onUpdateStore(prev => ({
       ...prev,
       tips: [...newTips, ...prev.tips]
     }));
-    notifyAdmin('✨ Auto-Published 5 Daily SEO Tips (450–550 words each, Non-Adult & Adult 18+)!');
+    notifyAdmin('✨ Auto-Published 5 Daily SEO Tips (450+ words each, Non-Adult & Adult 18+)!');
   };
 
-  // Auto-Publish 10 SEO-Complete Daily Blog Posts (850-980 words each)
+  // Auto-Publish 10 SEO-Complete Daily Blog Posts (850+ words each)
   const handleAutoPublishDailyBlogs = () => {
     const newBlogs = generateAutoSeoBlogs(store.settings.categories);
     onUpdateStore(prev => ({
       ...prev,
       blogs: [...newBlogs, ...prev.blogs]
     }));
-    notifyAdmin('✨ Auto-Published 10 Daily SEO Blog Articles (~900 words each across categories)!');
+    notifyAdmin('✨ Auto-Published 10 Daily SEO Blog Articles (850+ words each across categories)!');
   };
 
   // Save Page
@@ -245,6 +328,16 @@ export const KinetivoAdmin: React.FC<KinetivoAdminProps> = ({
 
     setIsPageModalOpen(false);
     setEditingPage(null);
+    notifyAdmin('Page saved cleanly!');
+  };
+
+  const handleTogglePageStatus = (id: string) => {
+    onUpdateStore(prev => ({
+      ...prev,
+      pages: prev.pages.map(p =>
+        p.id === id ? { ...p, status: p.status === 'published' ? 'draft' : 'published' } : p
+      )
+    }));
   };
 
   // Delete Page
@@ -649,7 +742,7 @@ jobs:
               </div>
 
               {/* Video Table List */}
-              <div className="bg-[#110f17] border border-stone-800 rounded-2xl overflow-hidden shadow-xl">
+              <div className="bg-[#110f17] border border-stone-800 rounded-2xl overflow-x-auto shadow-xl">
                 <table className="w-full text-left text-xs text-stone-300">
                   <thead className="bg-[#16131e] text-[11px] uppercase tracking-wider text-stone-400 border-b border-stone-800">
                     <tr>
@@ -658,6 +751,7 @@ jobs:
                       <th className="py-3 px-4">Category</th>
                       <th className="py-3 px-4">Metrics</th>
                       <th className="py-3 px-4">Privacy / Tier</th>
+                      <th className="py-3 px-4">Status</th>
                       <th className="py-3 px-4">Featured</th>
                       <th className="py-3 px-4 text-right">Actions</th>
                     </tr>
@@ -709,6 +803,16 @@ jobs:
                         </td>
                         <td className="py-3 px-4">
                           <button
+                            type="button"
+                            onClick={() => handleToggleVideoStatus(vid.id)}
+                            className={`px-2.5 py-1 rounded text-[10px] font-bold uppercase border transition-colors ${vid.status === 'Published' ? 'bg-emerald-950/80 text-emerald-400 border-emerald-500/30 hover:bg-emerald-900/80' : 'bg-stone-900 text-amber-300 border-amber-500/30 hover:bg-stone-800'}`}
+                            title="Click to toggle Published / Draft"
+                          >
+                            {vid.status}
+                          </button>
+                        </td>
+                        <td className="py-3 px-4">
+                          <button
                             onClick={() => handleToggleFeatured(vid.id)}
                             className={`px-2.5 py-1 rounded text-[11px] font-medium transition-colors ${vid.featuredOnHome ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-500/30' : 'bg-stone-900 text-stone-500 border border-stone-800'}`}
                           >
@@ -751,7 +855,7 @@ jobs:
                     Blog Posts Management ({store.blogs.length})
                   </h2>
                   <p className="text-xs text-stone-400 mt-1">
-                    Create & publish 850–1,000 word SEO articles across categories, or auto-post 10 full category stories daily.
+                    Create &amp; publish unlimited-length SEO articles with rich formatting and photos, or auto-post 10 full category stories daily (850+ words min).
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -764,6 +868,7 @@ jobs:
                   </button>
                   <button
                     onClick={() => {
+                      setBlogPreviewMode(false);
                       setEditingBlog({
                         id: `blog-${Date.now()}`,
                         titleEn: '',
@@ -776,15 +881,18 @@ jobs:
                         subtitle: '',
                         bannerImage: PRESET_THUMBNAILS[0],
                         content: '',
-                        showInHeader: true,
+                        showInHeader: false,
                         showInFooter: true,
                         featuredOnHome: true,
                         status: 'published',
-                        date: 'Just now',
+                        date: formatTodayDate(),
                         readTime: '6 min read',
                         isPrivateVIP: false,
                         isShareToUnlock: false,
-                        likes: 0
+                        likes: 0,
+                        seoTitle: '',
+                        seoDescription: '',
+                        seoKeywords: ''
                       });
                       setIsBlogModalOpen(true);
                     }}
@@ -796,7 +904,7 @@ jobs:
                 </div>
               </div>
 
-              {/* BLOG CATEGORIES MANAGER (Add, Remove & Select directly in Blog Panel) */}
+              {/* BLOG CATEGORIES MANAGER */}
               <div className="p-5 rounded-2xl bg-[#110f17] border border-stone-800 space-y-3.5">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
@@ -804,7 +912,7 @@ jobs:
                       Blog Categories Manager (ক্যাটাগরি যোগ / রিমুভ ও সিলেক্ট করুন)
                     </h3>
                     <p className="text-[11px] text-stone-400">
-                      Click a category to filter & pre-select for new posts, add new categories, or click × to remove.
+                      Click a category to filter &amp; pre-select for new posts, add new categories, or click × to remove.
                     </p>
                   </div>
                   <div className="flex gap-2">
@@ -862,15 +970,15 @@ jobs:
               </div>
 
               {/* Blog Table */}
-              <div className="bg-[#110f17] border border-stone-800 rounded-2xl overflow-hidden shadow-xl">
+              <div className="bg-[#110f17] border border-stone-800 rounded-2xl overflow-x-auto shadow-xl">
                 <table className="w-full text-left text-xs text-stone-300">
                   <thead className="bg-[#16131e] text-[11px] uppercase tracking-wider text-stone-400 border-b border-stone-800">
                     <tr>
-                      <th className="py-3 px-4">Title & Subtitle</th>
+                      <th className="py-3 px-4">Title &amp; Subtitle</th>
                       <th className="py-3 px-4">Slug URL</th>
                       <th className="py-3 px-4">Category</th>
-                      <th className="py-3 px-4">Nav & Footer</th>
                       <th className="py-3 px-4">Access Tier</th>
+                      <th className="py-3 px-4">Status</th>
                       <th className="py-3 px-4">Home Feature</th>
                       <th className="py-3 px-4">Date</th>
                       <th className="py-3 px-4 text-right">Actions</th>
@@ -893,10 +1001,6 @@ jobs:
                             {b.category}
                           </span>
                         </td>
-                        <td className="py-3 px-4 text-[11px] text-stone-400">
-                          {b.showInHeader && <span className="text-emerald-400 mr-2">● Header</span>}
-                          {b.showInFooter && <span className="text-sky-400">● Footer</span>}
-                        </td>
                         <td className="py-3 px-4">
                           {b.isPrivateVIP ? (
                             <span className="px-2 py-0.5 rounded bg-amber-950/80 text-amber-300 border border-amber-600/40 text-[10px] font-bold uppercase inline-flex items-center gap-1">
@@ -905,6 +1009,16 @@ jobs:
                           ) : (
                             <span className="text-stone-400 text-[11px]">Public</span>
                           )}
+                        </td>
+                        <td className="py-3 px-4">
+                          <button
+                            type="button"
+                            onClick={() => handleToggleBlogStatus(b.id)}
+                            className={`px-2.5 py-1 rounded text-[10px] font-bold uppercase border transition-colors ${b.status === 'published' ? 'bg-emerald-950/80 text-emerald-400 border-emerald-500/30 hover:bg-emerald-900/80' : 'bg-stone-900 text-amber-300 border-amber-500/30 hover:bg-stone-800'}`}
+                            title="Click to toggle Published / Draft"
+                          >
+                            {b.status === 'published' ? 'Published' : 'Draft'}
+                          </button>
                         </td>
                         <td className="py-3 px-4">
                           <button
@@ -918,6 +1032,7 @@ jobs:
                         <td className="py-3 px-4 text-right space-x-2">
                           <button
                             onClick={() => {
+                              setBlogPreviewMode(false);
                               setEditingBlog(b);
                               setIsBlogModalOpen(true);
                             }}
@@ -946,10 +1061,10 @@ jobs:
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                   <h2 className="text-2xl font-bold text-white tracking-tight">
-                    Tips & Masterclasses Management ({store.tips.length})
+                    Tips &amp; Masterclasses Management ({store.tips.length})
                   </h2>
                   <p className="text-xs text-stone-400 mt-1">
-                    Manage Non-Adult and Adult 18+ lifestyle, styling, dining, and intimacy tips. Auto-publish 5 category tips daily.
+                    Manage unlimited-length Non-Adult and Adult 18+ lifestyle, styling, dining, and intimacy tips. Auto-publish 5 category tips daily (450+ words min).
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -962,6 +1077,7 @@ jobs:
                   </button>
                   <button
                     onClick={() => {
+                      setTipPreviewMode(false);
                       setEditingTip({
                         id: `tip-${Date.now()}`,
                         title: '',
@@ -969,12 +1085,16 @@ jobs:
                         isAdult18: false,
                         image: PRESET_THUMBNAILS[0],
                         content: '',
-                        readTime: '3 min read',
-                        date: 'Today',
+                        readTime: '5 min read',
+                        date: formatTodayDate(),
+                        status: 'published',
                         featuredOnHome: true,
                         isPrivateVIP: false,
                         isShareToUnlock: false,
-                        likes: 0
+                        likes: 0,
+                        seoTitle: '',
+                        seoDescription: '',
+                        seoKeywords: ''
                       });
                       setIsTipModalOpen(true);
                     }}
@@ -987,15 +1107,16 @@ jobs:
               </div>
 
               {/* Tips Table */}
-              <div className="bg-[#110f17] border border-stone-800 rounded-2xl overflow-hidden shadow-xl">
+              <div className="bg-[#110f17] border border-stone-800 rounded-2xl overflow-x-auto shadow-xl">
                 <table className="w-full text-left text-xs text-stone-300">
                   <thead className="bg-[#16131e] text-[11px] uppercase tracking-wider text-stone-400 border-b border-stone-800">
                     <tr>
                       <th className="py-3 px-4">Preview</th>
-                      <th className="py-3 px-4">Title & Excerpt</th>
+                      <th className="py-3 px-4">Title &amp; Excerpt</th>
                       <th className="py-3 px-4">Category</th>
                       <th className="py-3 px-4">18+ / Adult</th>
                       <th className="py-3 px-4">Access Tier</th>
+                      <th className="py-3 px-4">Status</th>
                       <th className="py-3 px-4">Home Feature</th>
                       <th className="py-3 px-4 text-right">Actions</th>
                     </tr>
@@ -1048,6 +1169,16 @@ jobs:
                         </td>
                         <td className="py-3 px-4">
                           <button
+                            type="button"
+                            onClick={() => handleToggleTipStatus(tip.id)}
+                            className={`px-2.5 py-1 rounded text-[10px] font-bold uppercase border transition-colors ${tip.status === 'published' ? 'bg-emerald-950/80 text-emerald-400 border-emerald-500/30 hover:bg-emerald-900/80' : 'bg-stone-900 text-amber-300 border-amber-500/30 hover:bg-stone-800'}`}
+                            title="Click to toggle Published / Draft"
+                          >
+                            {tip.status === 'published' ? 'Published' : 'Draft'}
+                          </button>
+                        </td>
+                        <td className="py-3 px-4">
+                          <button
                             onClick={() => handleToggleTipHome(tip.id)}
                             className={`px-2.5 py-1 rounded text-[11px] font-medium transition-colors ${tip.featuredOnHome ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-500/30' : 'bg-stone-900 text-stone-500 border border-stone-800'}`}
                           >
@@ -1057,6 +1188,7 @@ jobs:
                         <td className="py-3 px-4 text-right space-x-2">
                           <button
                             onClick={() => {
+                              setTipPreviewMode(false);
                               setEditingTip(tip);
                               setIsTipModalOpen(true);
                             }}
@@ -1088,21 +1220,26 @@ jobs:
                     Extra Pages Management ({store.pages.length})
                   </h2>
                   <p className="text-xs text-stone-400 mt-1">
-                    Create standalone pages like About Isabella, Case Studies, Terms, Concierge & Masterclasses.
+                    Edit About Isabella, Membership Tiers, Private Concierge, VIP Terms, or create custom rich-text pages with photos &amp; SEO meta.
                   </p>
                 </div>
                 <button
                   onClick={() => {
+                    setPagePreviewMode(false);
                     setEditingPage({
                       id: `page-${Date.now()}`,
                       titleEn: '',
                       titleBn: '',
                       slug: '',
+                      bannerImage: PRESET_THUMBNAILS[0],
                       content: '',
-                      showInHeader: true,
+                      showInHeader: false,
                       showInFooter: true,
                       status: 'published',
-                      lastUpdated: 'Just now'
+                      lastUpdated: formatTodayDate(),
+                      seoTitle: '',
+                      seoDescription: '',
+                      seoKeywords: ''
                     });
                     setIsPageModalOpen(true);
                   }}
@@ -1114,23 +1251,37 @@ jobs:
               </div>
 
               {/* Pages Table */}
-              <div className="bg-[#110f17] border border-stone-800 rounded-2xl overflow-hidden shadow-xl">
+              <div className="bg-[#110f17] border border-stone-800 rounded-2xl overflow-x-auto shadow-xl">
                 <table className="w-full text-left text-xs text-stone-300">
                   <thead className="bg-[#16131e] text-[11px] uppercase tracking-wider text-stone-400 border-b border-stone-800">
                     <tr>
-                      <th className="py-3 px-4">Title (English / Bengali)</th>
-                      <th className="py-3 px-4">Slug URL</th>
-                      <th className="py-3 px-4">Nav Visibility</th>
-                      <th className="py-3 px-4">Status</th>
+                      <th className="py-3 px-4">Banner</th>
+                      <th className="py-3 px-4">Page Title</th>
+                      <th className="py-3 px-4">Direct Route URL</th>
+                      <th className="py-3 px-4">Visibility</th>
+                      <th className="py-3 px-4">Status (1-Click)</th>
                       <th className="py-3 px-4 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-stone-800/80">
                     {store.pages.map((p) => (
                       <tr key={p.id} className="hover:bg-[#16131e]/50 transition-colors">
+                        <td className="py-3 px-4">
+                          {p.bannerImage ? (
+                            <img
+                              src={resolveAssetUrl(p.bannerImage)}
+                              alt=""
+                              className="w-14 h-10 object-cover rounded bg-stone-900 border border-stone-800"
+                            />
+                          ) : (
+                            <div className="w-14 h-10 rounded bg-stone-900 border border-stone-800 flex items-center justify-center text-[10px] text-stone-500">
+                              Text
+                            </div>
+                          )}
+                        </td>
                         <td className="py-3 px-4 max-w-sm">
                           <span className="font-semibold text-white block">{p.titleEn}</span>
-                          <span className="text-[11px] text-stone-400 block">{p.titleBn}</span>
+                          <span className="text-[11px] text-stone-400 block truncate">{p.seoDescription || `Updated ${p.lastUpdated}`}</span>
                         </td>
                         <td className="py-3 px-4 font-mono text-[11px] text-[#e7c792]">
                           /page/{p.slug}
@@ -1140,13 +1291,19 @@ jobs:
                           {p.showInFooter && <span className="text-sky-400">● Footer</span>}
                         </td>
                         <td className="py-3 px-4">
-                          <span className="px-2 py-0.5 rounded bg-emerald-950/80 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold uppercase">
-                            {p.status}
-                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleTogglePageStatus(p.id)}
+                            className={`px-2.5 py-1 rounded text-[10px] font-bold uppercase border transition-colors ${p.status === 'published' ? 'bg-emerald-950/80 text-emerald-400 border-emerald-500/30 hover:bg-emerald-900/80' : 'bg-stone-900 text-amber-300 border-amber-500/30 hover:bg-stone-800'}`}
+                            title="Click to toggle Published / Draft"
+                          >
+                            {p.status === 'published' ? 'Published' : 'Draft'}
+                          </button>
                         </td>
                         <td className="py-3 px-4 text-right space-x-2">
                           <button
                             onClick={() => {
+                              setPagePreviewMode(false);
                               setEditingPage(p);
                               setIsPageModalOpen(true);
                             }}
@@ -1172,13 +1329,23 @@ jobs:
           {/* TAB 4: SITE-WIDE IMAGES, PAGE COPY & SHOWREEL STUDIO */}
           {activeTab === 'showreel' && (
             <div className="max-w-4xl space-y-8">
-              <div>
-                <h2 className="text-2xl font-bold text-white tracking-tight">
-                  Site-Wide Images, Page Copy & Showreel Studio
-                </h2>
-                <p className="text-xs text-stone-400 mt-1">
-                  Upload custom images directly from your device or paste URLs for every page section, plus edit full page copy in one place.
-                </p>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-2xl font-bold text-white tracking-tight">
+                    Site-Wide Images, Page Copy &amp; Showreel Studio
+                  </h2>
+                  <p className="text-xs text-stone-400 mt-1">
+                    Upload custom images directly from your device or paste URLs for every page section, plus edit full page copy in one place.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleExplicitSaveSettings}
+                  className="px-5 py-2.5 rounded-xl bg-[#c99757] hover:bg-[#d6a567] text-stone-950 font-bold text-xs inline-flex items-center gap-2 shadow-lg shrink-0"
+                >
+                  <Save className="w-4 h-4" />
+                  <span>Save Images &amp; Copy</span>
+                </button>
               </div>
 
               {/* Site-Wide Visual Assets Matrix */}
@@ -1547,14 +1714,31 @@ jobs:
 
           {/* TAB 7: SETTINGS & SECURITY */}
           {activeTab === 'settings' && (
-            <div className="max-w-4xl space-y-6">
-              <div>
-                <h2 className="text-2xl font-bold text-white tracking-tight">
-                  Settings & Security Hub
-                </h2>
-                <p className="text-xs text-stone-400 mt-1">
-                  Manage branding, contact info, security passcode, categories, and data backups.
-                </p>
+            <div className="max-w-4xl space-y-6 pb-8">
+              <div className="sticky top-0 z-20 -mx-2 px-4 py-3 rounded-2xl bg-[#110f17]/95 backdrop-blur-md border border-[#c99757]/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xl">
+                <div>
+                  <h2 className="text-xl font-bold text-white tracking-tight">
+                    Settings, Menus, SEO &amp; Security Hub
+                  </h2>
+                  <p className="text-[11px] text-stone-400">
+                    Configure SEO tags, edit Front &amp; Footer menus, payouts, &lt;head&gt; analytics, and save changes.
+                  </p>
+                </div>
+                <div className="flex items-center gap-3 shrink-0">
+                  {lastSavedLabel && (
+                    <span className="text-[11px] text-emerald-400 font-medium hidden md:inline">
+                      ✓ {lastSavedLabel}
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleExplicitSaveSettings}
+                    className="px-5 py-2.5 rounded-xl bg-[#c99757] hover:bg-[#d6a567] text-stone-950 font-bold text-xs inline-flex items-center gap-2 shadow-lg transition-transform hover:scale-[1.02]"
+                  >
+                    <Save className="w-4 h-4" />
+                    <span>Save Settings</span>
+                  </button>
+                </div>
               </div>
 
               {/* SECURITY & PASSCODE BOX - Matches Kinetivo Screenshot */}
@@ -2019,6 +2203,24 @@ jobs:
                   <p>3. Every time you run <span className="font-mono text-sky-300">git push origin main</span>, Netlify automatically builds and publishes your live website in ~30 seconds.</p>
                 </div>
               </div>
+
+              {/* BOTTOM EXPLICIT SAVE SETTINGS BAR */}
+              <div className="p-5 rounded-2xl bg-[#14111c] border border-[#c99757]/50 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xl">
+                <div>
+                  <h4 className="text-sm font-bold text-white">Ready to apply all settings?</h4>
+                  <p className="text-xs text-stone-400">
+                    Click Save Settings to commit SEO meta tags, menus, payout gateways, and &lt;head&gt; analytics immediately.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleExplicitSaveSettings}
+                  className="px-6 py-3 rounded-xl bg-[#c99757] hover:bg-[#d6a567] text-stone-950 font-bold text-xs inline-flex items-center gap-2 shadow-xl shrink-0"
+                >
+                  <Save className="w-4 h-4" />
+                  <span>Save All Settings</span>
+                </button>
+              </div>
             </div>
           )}
         </main>
@@ -2170,7 +2372,7 @@ jobs:
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-stone-300 mb-1 font-medium">Duration / Count (e.g. 0:45 or 6 Photos)</label>
                   <input
@@ -2189,6 +2391,57 @@ jobs:
                     className="w-full bg-[#09080d] border border-stone-700 rounded-lg p-2 text-white"
                   />
                 </div>
+                <div>
+                  <label className="block text-stone-300 mb-1 font-medium">Publication Status</label>
+                  <select
+                    value={editingVideo.status}
+                    onChange={(e) => setEditingVideo({ ...editingVideo, status: e.target.value as 'Published' | 'Draft' })}
+                    className="w-full bg-[#09080d] border border-stone-700 rounded-lg p-2 text-white font-semibold"
+                  >
+                    <option value="Published">Published (Live)</option>
+                    <option value="Draft">Draft (Hidden)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-stone-300 mb-1 font-medium">Media Description</label>
+                <textarea
+                  rows={2}
+                  value={editingVideo.descriptionEn}
+                  onChange={(e) => setEditingVideo({ ...editingVideo, descriptionEn: e.target.value })}
+                  placeholder="Describe this video reel or photo gallery..."
+                  className="w-full bg-[#09080d] border border-stone-700 rounded-lg p-2 text-white"
+                />
+              </div>
+
+              {/* Per-Video SEO Metadata */}
+              <div className="p-3.5 rounded-xl bg-[#09080d] border border-emerald-500/30 space-y-2.5">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+                  <Search className="w-3.5 h-3.5" />
+                  <span>SEO Optimization (Video / Gallery Meta Tags)</span>
+                </div>
+                <input
+                  type="text"
+                  placeholder="SEO Title (defaults to Media Title)"
+                  value={editingVideo.seoTitle || ''}
+                  onChange={(e) => setEditingVideo({ ...editingVideo, seoTitle: e.target.value })}
+                  className="w-full bg-[#14111c] border border-stone-700 rounded-lg px-2.5 py-1.5 text-white"
+                />
+                <input
+                  type="text"
+                  placeholder="SEO Meta Description (120–160 chars)"
+                  value={editingVideo.seoDescription || ''}
+                  onChange={(e) => setEditingVideo({ ...editingVideo, seoDescription: e.target.value })}
+                  className="w-full bg-[#14111c] border border-stone-700 rounded-lg px-2.5 py-1.5 text-white"
+                />
+                <input
+                  type="text"
+                  placeholder="SEO Keywords (comma separated)"
+                  value={editingVideo.seoKeywords || ''}
+                  onChange={(e) => setEditingVideo({ ...editingVideo, seoKeywords: e.target.value })}
+                  className="w-full bg-[#14111c] border border-stone-700 rounded-lg px-2.5 py-1.5 text-white"
+                />
               </div>
 
               <div className="flex flex-wrap items-center gap-5 pt-2">
@@ -2245,12 +2498,12 @@ jobs:
         </div>
       )}
 
-      {/* BLOG MODAL (Add/Edit) */}
+      {/* BLOG MODAL (Add/Edit — Unlimited Length + Rich Toolbar + SEO + Published/Draft) */}
       {isBlogModalOpen && editingBlog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-md">
-          <div className="relative w-full max-w-2xl bg-[#110f17] border border-stone-800 rounded-2xl p-6 shadow-2xl overflow-y-auto max-h-[90vh]">
+          <div className="relative w-full max-w-3xl bg-[#110f17] border border-stone-800 rounded-2xl p-6 shadow-2xl overflow-y-auto max-h-[90vh]">
             <div className="flex items-center justify-between pb-4 border-b border-stone-800 mb-4">
-              <h3 className="text-base font-semibold text-white">Edit Blog Article (Target 800–1,000 Words SEO)</h3>
+              <h3 className="text-base font-semibold text-white">Edit Blog Article (Rich Text, Images &amp; SEO)</h3>
               <button onClick={() => setIsBlogModalOpen(false)} className="text-stone-400 hover:text-white">
                 <X className="w-4 h-4" />
               </button>
@@ -2267,7 +2520,7 @@ jobs:
                     setEditingBlog({
                       ...editingBlog,
                       titleEn: title,
-                      slug: editingBlog.slug || title.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+                      slug: editingBlog.slug || title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
                     });
                   }}
                   className="w-full bg-[#09080d] border border-stone-700 rounded-lg p-2 text-white"
@@ -2275,7 +2528,7 @@ jobs:
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-stone-300 mb-1 font-medium">Custom Slug (/blog/[slug])</label>
                   <input
@@ -2298,10 +2551,21 @@ jobs:
                     ))}
                   </select>
                 </div>
+                <div>
+                  <label className="block text-stone-300 mb-1 font-medium">Publication Status</label>
+                  <select
+                    value={editingBlog.status}
+                    onChange={(e) => setEditingBlog({ ...editingBlog, status: e.target.value as 'published' | 'draft' })}
+                    className="w-full bg-[#09080d] border border-stone-700 rounded-lg p-2 text-white font-semibold"
+                  >
+                    <option value="published">Published (Live)</option>
+                    <option value="draft">Draft (Hidden)</option>
+                  </select>
+                </div>
               </div>
 
               <div>
-                <label className="block text-stone-300 mb-1 font-medium">Subtitle / SEO Meta Excerpt</label>
+                <label className="block text-stone-300 mb-1 font-medium">Subtitle / Excerpt</label>
                 <input
                   type="text"
                   value={editingBlog.subtitle}
@@ -2348,19 +2612,106 @@ jobs:
               </div>
 
               <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-stone-300 font-medium">Rich SEO Article Content (use ## for headings)</label>
-                  <span className="text-[11px] font-mono text-[#e7c792]">
-                    Words: {countWords(editingBlog.content)} / 1000
-                  </span>
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
+                  <label className="text-stone-300 font-medium">Rich Article Body (Unlimited Words)</label>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-mono text-[#e7c792]">
+                      Words: {countWords(editingBlog.content)} (Unlimited)
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setBlogPreviewMode(!blogPreviewMode)}
+                      className="px-2.5 py-1 rounded bg-stone-800 hover:bg-stone-700 text-stone-200 text-[10px] font-semibold"
+                    >
+                      {blogPreviewMode ? 'Edit Source' : 'Rich Preview'}
+                    </button>
+                  </div>
                 </div>
-                <textarea
-                  rows={8}
-                  value={editingBlog.content}
-                  onChange={(e) => setEditingBlog({ ...editingBlog, content: e.target.value })}
-                  className="w-full bg-[#09080d] border border-stone-700 rounded-lg p-2.5 text-white leading-relaxed"
-                  placeholder="Write the full SEO story, ## headings, tips, and insights here..."
-                  required
+
+                {/* Rich Formatting & Image Insertion Toolbar */}
+                {!blogPreviewMode && (
+                  <div className="flex flex-wrap items-center gap-1.5 p-2 rounded-t-lg bg-[#181422] border border-b-0 border-stone-700">
+                    {[
+                      { label: 'H2', snippet: '\n\n## Section Heading\n\n' },
+                      { label: 'H3', snippet: '\n\n### Subheading\n\n' },
+                      { label: 'Bold', snippet: '**Bold Text**' },
+                      { label: 'Italic', snippet: '*Italic Text*' },
+                      { label: 'Bullet List', snippet: '\n\n- Key Highlight One\n- Key Highlight Two\n\n' },
+                      { label: 'Quote', snippet: '\n\n> Timeless luxury quote...\n\n' }
+                    ].map((btn) => (
+                      <button
+                        key={btn.label}
+                        type="button"
+                        onClick={() => setEditingBlog({ ...editingBlog, content: (editingBlog.content || '') + btn.snippet })}
+                        className="px-2 py-1 rounded bg-stone-900 hover:bg-stone-800 border border-stone-700 text-[10px] font-semibold text-stone-200"
+                      >
+                        + {btn.label}
+                      </button>
+                    ))}
+                    <label className="px-2 py-1 rounded bg-[#c99757]/20 hover:bg-[#c99757]/30 border border-[#c99757]/40 text-[#f6e2bb] text-[10px] font-semibold cursor-pointer inline-flex items-center gap-1">
+                      <ImageIcon className="w-3 h-3" />
+                      <span>+ Insert Photo</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          readLocalImageFile(file, (url) =>
+                            setEditingBlog({
+                              ...editingBlog,
+                              content: `${editingBlog.content || ''}\n\n![Editorial Photo](${url})\n\n`
+                            })
+                          );
+                        }}
+                      />
+                    </label>
+                  </div>
+                )}
+
+                {blogPreviewMode ? (
+                  <div className="min-h-[220px] max-h-[340px] overflow-y-auto p-4 rounded-lg bg-[#09080d] border border-stone-700 space-y-3 text-sm">
+                    {renderRichMarkdown(editingBlog.content)}
+                  </div>
+                ) : (
+                  <textarea
+                    rows={9}
+                    value={editingBlog.content}
+                    onChange={(e) => setEditingBlog({ ...editingBlog, content: e.target.value })}
+                    className="w-full bg-[#09080d] border border-stone-700 rounded-b-lg p-2.5 text-white leading-relaxed"
+                    placeholder="Write any length article here using ## Headings, **bold**, - lists, and inserted images..."
+                    required
+                  />
+                )}
+              </div>
+
+              {/* Per-Blog SEO Metadata */}
+              <div className="p-3.5 rounded-xl bg-[#09080d] border border-emerald-500/30 space-y-2.5">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+                  <Search className="w-3.5 h-3.5" />
+                  <span>SEO Meta Settings (Title, Description &amp; Keywords)</span>
+                </div>
+                <input
+                  type="text"
+                  placeholder="Custom SEO Title (defaults to Article Title)"
+                  value={editingBlog.seoTitle || ''}
+                  onChange={(e) => setEditingBlog({ ...editingBlog, seoTitle: e.target.value })}
+                  className="w-full bg-[#14111c] border border-stone-700 rounded-lg px-2.5 py-1.5 text-white"
+                />
+                <input
+                  type="text"
+                  placeholder="SEO Meta Description (120–160 characters)"
+                  value={editingBlog.seoDescription || ''}
+                  onChange={(e) => setEditingBlog({ ...editingBlog, seoDescription: e.target.value })}
+                  className="w-full bg-[#14111c] border border-stone-700 rounded-lg px-2.5 py-1.5 text-white"
+                />
+                <input
+                  type="text"
+                  placeholder="SEO Keywords (comma separated)"
+                  value={editingBlog.seoKeywords || ''}
+                  onChange={(e) => setEditingBlog({ ...editingBlog, seoKeywords: e.target.value })}
+                  className="w-full bg-[#14111c] border border-stone-700 rounded-lg px-2.5 py-1.5 text-white"
                 />
               </div>
 
@@ -2438,12 +2789,12 @@ jobs:
         </div>
       )}
 
-      {/* TIPS MODAL (Add/Edit) */}
+      {/* TIPS MODAL (Add/Edit — Unlimited Length + Rich Toolbar + SEO + Published/Draft) */}
       {isTipModalOpen && editingTip && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-md">
-          <div className="relative w-full max-w-2xl bg-[#110f17] border border-stone-800 rounded-2xl p-6 shadow-2xl overflow-y-auto max-h-[90vh]">
+          <div className="relative w-full max-w-3xl bg-[#110f17] border border-stone-800 rounded-2xl p-6 shadow-2xl overflow-y-auto max-h-[90vh]">
             <div className="flex items-center justify-between pb-4 border-b border-stone-800 mb-4">
-              <h3 className="text-base font-semibold text-white">Edit Masterclass Tip (400–600 Words SEO)</h3>
+              <h3 className="text-base font-semibold text-white">Edit Masterclass Tip (Rich Text, Images &amp; SEO)</h3>
               <button onClick={() => setIsTipModalOpen(false)} className="text-stone-400 hover:text-white">
                 <X className="w-4 h-4" />
               </button>
@@ -2462,7 +2813,7 @@ jobs:
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-stone-300 mb-1 font-medium">Category</label>
                   <select
@@ -2471,10 +2822,10 @@ jobs:
                     className="w-full bg-[#09080d] border border-stone-700 rounded-lg p-2 text-white"
                   >
                     <option value="Feminine Confidence">Feminine Confidence</option>
-                    <option value="Fashion & Styling">Fashion & Styling</option>
-                    <option value="Dining & Wine">Dining & Wine</option>
+                    <option value="Fashion & Styling">Fashion &amp; Styling</option>
+                    <option value="Dining & Wine">Dining &amp; Wine</option>
                     <option value="Adult 18+ Intimacy">Adult 18+ Intimacy</option>
-                    <option value="Skincare & Glow">Skincare & Glow</option>
+                    <option value="Skincare & Glow">Skincare &amp; Glow</option>
                   </select>
                 </div>
                 <div>
@@ -2485,6 +2836,17 @@ jobs:
                     onChange={(e) => setEditingTip({ ...editingTip, readTime: e.target.value })}
                     className="w-full bg-[#09080d] border border-stone-700 rounded-lg p-2 text-white"
                   />
+                </div>
+                <div>
+                  <label className="block text-stone-300 mb-1 font-medium">Publication Status</label>
+                  <select
+                    value={editingTip.status}
+                    onChange={(e) => setEditingTip({ ...editingTip, status: e.target.value as 'published' | 'draft' })}
+                    className="w-full bg-[#09080d] border border-stone-700 rounded-lg p-2 text-white font-semibold"
+                  >
+                    <option value="published">Published (Live)</option>
+                    <option value="draft">Draft (Hidden)</option>
+                  </select>
                 </div>
               </div>
 
@@ -2526,18 +2888,103 @@ jobs:
               </div>
 
               <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-stone-300 font-medium">Detailed SEO Tip Advice (use ## for section headings)</label>
-                  <span className="text-[11px] font-mono text-[#e7c792]">
-                    Words: {countWords(editingTip.content)} (Target 400–600)
-                  </span>
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
+                  <label className="text-stone-300 font-medium">Detailed Masterclass Tip Advice (Unlimited Words)</label>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-mono text-[#e7c792]">
+                      Words: {countWords(editingTip.content)} (Unlimited)
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setTipPreviewMode(!tipPreviewMode)}
+                      className="px-2.5 py-1 rounded bg-stone-800 hover:bg-stone-700 text-stone-200 text-[10px] font-semibold"
+                    >
+                      {tipPreviewMode ? 'Edit Source' : 'Rich Preview'}
+                    </button>
+                  </div>
                 </div>
-                <textarea
-                  rows={8}
-                  value={editingTip.content}
-                  onChange={(e) => setEditingTip({ ...editingTip, content: e.target.value })}
-                  className="w-full bg-[#09080d] border border-stone-700 rounded-lg p-2.5 text-white leading-relaxed"
-                  required
+
+                {!tipPreviewMode && (
+                  <div className="flex flex-wrap items-center gap-1.5 p-2 rounded-t-lg bg-[#181422] border border-b-0 border-stone-700">
+                    {[
+                      { label: 'H2', snippet: '\n\n## Section Heading\n\n' },
+                      { label: 'H3', snippet: '\n\n### Subheading\n\n' },
+                      { label: 'Bold', snippet: '**Bold Text**' },
+                      { label: 'Bullet List', snippet: '\n\n- Step One\n- Step Two\n\n' },
+                      { label: 'Quote', snippet: '\n\n> Signature advice...\n\n' }
+                    ].map((btn) => (
+                      <button
+                        key={btn.label}
+                        type="button"
+                        onClick={() => setEditingTip({ ...editingTip, content: (editingTip.content || '') + btn.snippet })}
+                        className="px-2 py-1 rounded bg-stone-900 hover:bg-stone-800 border border-stone-700 text-[10px] font-semibold text-stone-200"
+                      >
+                        + {btn.label}
+                      </button>
+                    ))}
+                    <label className="px-2 py-1 rounded bg-[#c99757]/20 hover:bg-[#c99757]/30 border border-[#c99757]/40 text-[#f6e2bb] text-[10px] font-semibold cursor-pointer inline-flex items-center gap-1">
+                      <ImageIcon className="w-3 h-3" />
+                      <span>+ Insert Photo</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          readLocalImageFile(file, (url) =>
+                            setEditingTip({
+                              ...editingTip,
+                              content: `${editingTip.content || ''}\n\n![Tip Visual Guide](${url})\n\n`
+                            })
+                          );
+                        }}
+                      />
+                    </label>
+                  </div>
+                )}
+
+                {tipPreviewMode ? (
+                  <div className="min-h-[200px] max-h-[320px] overflow-y-auto p-4 rounded-lg bg-[#09080d] border border-stone-700 space-y-3 text-sm">
+                    {renderRichMarkdown(editingTip.content)}
+                  </div>
+                ) : (
+                  <textarea
+                    rows={8}
+                    value={editingTip.content}
+                    onChange={(e) => setEditingTip({ ...editingTip, content: e.target.value })}
+                    className="w-full bg-[#09080d] border border-stone-700 rounded-b-lg p-2.5 text-white leading-relaxed"
+                    required
+                  />
+                )}
+              </div>
+
+              {/* Per-Tip SEO Metadata */}
+              <div className="p-3.5 rounded-xl bg-[#09080d] border border-emerald-500/30 space-y-2.5">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+                  <Search className="w-3.5 h-3.5" />
+                  <span>SEO Meta Settings (Tip Title, Description &amp; Keywords)</span>
+                </div>
+                <input
+                  type="text"
+                  placeholder="SEO Title"
+                  value={editingTip.seoTitle || ''}
+                  onChange={(e) => setEditingTip({ ...editingTip, seoTitle: e.target.value })}
+                  className="w-full bg-[#14111c] border border-stone-700 rounded-lg px-2.5 py-1.5 text-white"
+                />
+                <input
+                  type="text"
+                  placeholder="SEO Meta Description"
+                  value={editingTip.seoDescription || ''}
+                  onChange={(e) => setEditingTip({ ...editingTip, seoDescription: e.target.value })}
+                  className="w-full bg-[#14111c] border border-stone-700 rounded-lg px-2.5 py-1.5 text-white"
+                />
+                <input
+                  type="text"
+                  placeholder="SEO Keywords (comma separated)"
+                  value={editingTip.seoKeywords || ''}
+                  onChange={(e) => setEditingTip({ ...editingTip, seoKeywords: e.target.value })}
+                  className="w-full bg-[#14111c] border border-stone-700 rounded-lg px-2.5 py-1.5 text-white"
                 />
               </div>
 
@@ -2605,20 +3052,20 @@ jobs:
         </div>
       )}
 
-      {/* PAGE MODAL (Add/Edit) */}
+      {/* EXTRA PAGE MODAL (Rich Text & Photo Editor + Banner + SEO + Published/Draft) */}
       {isPageModalOpen && editingPage && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-md">
-          <div className="relative w-full max-w-xl bg-[#110f17] border border-stone-800 rounded-2xl p-6 shadow-2xl">
+          <div className="relative w-full max-w-3xl bg-[#110f17] border border-stone-800 rounded-2xl p-6 shadow-2xl overflow-y-auto max-h-[90vh]">
             <div className="flex items-center justify-between pb-4 border-b border-stone-800 mb-4">
-              <h3 className="text-base font-semibold text-white">Edit Standalone Page</h3>
+              <h3 className="text-base font-semibold text-white">Edit Extra Page (Rich Text, Photos &amp; SEO)</h3>
               <button onClick={() => setIsPageModalOpen(false)} className="text-stone-400 hover:text-white">
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             <form onSubmit={handleSavePage} className="space-y-4 text-xs">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="sm:col-span-2">
                   <label className="block text-stone-300 mb-1 font-medium">Page Title (English)</label>
                   <input
                     type="text"
@@ -2628,7 +3075,7 @@ jobs:
                       setEditingPage({
                         ...editingPage,
                         titleEn: t,
-                        slug: editingPage.slug || t.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+                        slug: editingPage.slug || t.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
                       });
                     }}
                     className="w-full bg-[#09080d] border border-stone-700 rounded-lg p-2 text-white"
@@ -2636,13 +3083,15 @@ jobs:
                   />
                 </div>
                 <div>
-                  <label className="block text-stone-300 mb-1 font-medium">Page Title (Bengali)</label>
-                  <input
-                    type="text"
-                    value={editingPage.titleBn}
-                    onChange={(e) => setEditingPage({ ...editingPage, titleBn: e.target.value })}
-                    className="w-full bg-[#09080d] border border-stone-700 rounded-lg p-2 text-white"
-                  />
+                  <label className="block text-stone-300 mb-1 font-medium">Publication Status</label>
+                  <select
+                    value={editingPage.status}
+                    onChange={(e) => setEditingPage({ ...editingPage, status: e.target.value as 'published' | 'draft' })}
+                    className="w-full bg-[#09080d] border border-stone-700 rounded-lg p-2 text-white font-semibold"
+                  >
+                    <option value="published">Published (Live)</option>
+                    <option value="draft">Draft (Hidden)</option>
+                  </select>
                 </div>
               </div>
 
@@ -2657,14 +3106,147 @@ jobs:
                 />
               </div>
 
+              {/* Banner Photo */}
               <div>
-                <label className="block text-stone-300 mb-1 font-medium">Page Body Content</label>
-                <textarea
-                  rows={5}
-                  value={editingPage.content}
-                  onChange={(e) => setEditingPage({ ...editingPage, content: e.target.value })}
-                  className="w-full bg-[#09080d] border border-stone-700 rounded-lg p-2.5 text-white leading-relaxed"
-                  required
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-stone-300 font-medium">Page Banner / Feature Image (Upload or URL)</label>
+                  <label className="px-2.5 py-1 rounded bg-[#c99757]/20 hover:bg-[#c99757]/30 border border-[#c99757]/40 text-[#f6e2bb] text-[10px] font-semibold cursor-pointer inline-flex items-center gap-1">
+                    <Upload className="w-3 h-3" />
+                    <span>Upload Banner</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        readLocalImageFile(file, (url) => setEditingPage({ ...editingPage, bannerImage: url }));
+                      }}
+                    />
+                  </label>
+                </div>
+                <input
+                  type="text"
+                  value={editingPage.bannerImage || ''}
+                  onChange={(e) => setEditingPage({ ...editingPage, bannerImage: e.target.value })}
+                  placeholder="Optional banner image URL..."
+                  className="w-full bg-[#09080d] border border-stone-700 rounded-lg p-2 text-white font-mono mb-2"
+                />
+                <div className="flex gap-2 overflow-x-auto pb-1">
+                  {PRESET_THUMBNAILS.map((img, i) => (
+                    <img
+                      key={i}
+                      src={resolveAssetUrl(img)}
+                      alt=""
+                      onClick={() => setEditingPage({ ...editingPage, bannerImage: img })}
+                      className={`w-14 h-10 object-cover rounded cursor-pointer border-2 ${editingPage.bannerImage === img ? 'border-[#c99757]' : 'border-transparent'}`}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {/* Rich Content Editor + Live Preview */}
+              <div>
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
+                  <label className="text-stone-300 font-medium">Rich Page Body Content (Headings, Bold, Lists &amp; Photos)</label>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-mono text-[#e7c792]">
+                      Words: {countWords(editingPage.content)}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setPagePreviewMode(!pagePreviewMode)}
+                      className="px-2.5 py-1 rounded bg-stone-800 hover:bg-stone-700 text-stone-200 text-[10px] font-semibold"
+                    >
+                      {pagePreviewMode ? 'Edit Source' : 'Rich Preview'}
+                    </button>
+                  </div>
+                </div>
+
+                {!pagePreviewMode && (
+                  <div className="flex flex-wrap items-center gap-1.5 p-2 rounded-t-lg bg-[#181422] border border-b-0 border-stone-700">
+                    {[
+                      { label: 'H2', snippet: '\n\n## Section Heading\n\n' },
+                      { label: 'H3', snippet: '\n\n### Subheading\n\n' },
+                      { label: 'Bold', snippet: '**Important Text**' },
+                      { label: 'Italic', snippet: '*Emphasis*' },
+                      { label: 'Bullet List', snippet: '\n\n- Benefit Point One\n- Benefit Point Two\n\n' },
+                      { label: 'Quote', snippet: '\n\n> Quoted Highlight...\n\n' },
+                      { label: 'Divider', snippet: '\n\n---\n\n' }
+                    ].map((btn) => (
+                      <button
+                        key={btn.label}
+                        type="button"
+                        onClick={() => setEditingPage({ ...editingPage, content: (editingPage.content || '') + btn.snippet })}
+                        className="px-2 py-1 rounded bg-stone-900 hover:bg-stone-800 border border-stone-700 text-[10px] font-semibold text-stone-200"
+                      >
+                        + {btn.label}
+                      </button>
+                    ))}
+                    <label className="px-2 py-1 rounded bg-[#c99757]/20 hover:bg-[#c99757]/30 border border-[#c99757]/40 text-[#f6e2bb] text-[10px] font-semibold cursor-pointer inline-flex items-center gap-1">
+                      <ImageIcon className="w-3 h-3" />
+                      <span>+ Insert Photo into Body</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          readLocalImageFile(file, (url) =>
+                            setEditingPage({
+                              ...editingPage,
+                              content: `${editingPage.content || ''}\n\n![Page Photo](${url})\n\n`
+                            })
+                          );
+                        }}
+                      />
+                    </label>
+                  </div>
+                )}
+
+                {pagePreviewMode ? (
+                  <div className="min-h-[200px] max-h-[320px] overflow-y-auto p-4 rounded-lg bg-[#09080d] border border-stone-700 space-y-3 text-sm">
+                    {renderRichMarkdown(editingPage.content)}
+                  </div>
+                ) : (
+                  <textarea
+                    rows={8}
+                    value={editingPage.content}
+                    onChange={(e) => setEditingPage({ ...editingPage, content: e.target.value })}
+                    className="w-full bg-[#09080d] border border-stone-700 rounded-b-lg p-2.5 text-white leading-relaxed"
+                    placeholder="Write rich page content using ## Headings, **bold**, - bullet lists, or click + Insert Photo above..."
+                    required
+                  />
+                )}
+              </div>
+
+              {/* Per-Page SEO Metadata */}
+              <div className="p-3.5 rounded-xl bg-[#09080d] border border-emerald-500/30 space-y-2.5">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+                  <Search className="w-3.5 h-3.5" />
+                  <span>SEO Meta Settings (Page Title, Description &amp; Keywords)</span>
+                </div>
+                <input
+                  type="text"
+                  placeholder="SEO Title (defaults to Page Title)"
+                  value={editingPage.seoTitle || ''}
+                  onChange={(e) => setEditingPage({ ...editingPage, seoTitle: e.target.value })}
+                  className="w-full bg-[#14111c] border border-stone-700 rounded-lg px-2.5 py-1.5 text-white"
+                />
+                <input
+                  type="text"
+                  placeholder="SEO Meta Description (120–160 characters)"
+                  value={editingPage.seoDescription || ''}
+                  onChange={(e) => setEditingPage({ ...editingPage, seoDescription: e.target.value })}
+                  className="w-full bg-[#14111c] border border-stone-700 rounded-lg px-2.5 py-1.5 text-white"
+                />
+                <input
+                  type="text"
+                  placeholder="SEO Keywords (comma separated)"
+                  value={editingPage.seoKeywords || ''}
+                  onChange={(e) => setEditingPage({ ...editingPage, seoKeywords: e.target.value })}
+                  className="w-full bg-[#14111c] border border-stone-700 rounded-lg px-2.5 py-1.5 text-white"
                 />
               </div>
 

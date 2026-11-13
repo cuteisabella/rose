@@ -1,9 +1,40 @@
-import { AppStoreData, BlogPost, TipItem } from './types';
+import { AppStoreData, BlogPost, NavMenuItem, TipItem } from './types';
 import heroPortraitImg from './assets/images/isabella_hero_portrait_1794504410847.jpg';
 import fashionEditorialImg from './assets/images/isabella_fashion_editorial_1794504411013.jpg';
 import lifestyleFoodImg from './assets/images/isabella_lifestyle_food_1794504411538.jpg';
 import vipLoungeImg from './assets/images/isabella_vip_lounge_1794504424845.jpg';
 import profileAvatarImg from './assets/images/isabella_profile_avatar_1794504438986.jpg';
+
+export function formatTodayDate(): string {
+  try {
+    return new Date().toLocaleDateString('en-US', {
+      month: 'short',
+      day: '2-digit',
+      year: 'numeric'
+    });
+  } catch {
+    return 'Nov 13, 2026';
+  }
+}
+
+export const DEFAULT_HEADER_MENU: NavMenuItem[] = [
+  { id: 'nav-home', label: 'Home', target: 'home', visible: true },
+  { id: 'nav-tips', label: 'Tips', target: 'tips', visible: true },
+  { id: 'nav-journal', label: 'Journal', target: 'blog', visible: true },
+  { id: 'nav-vault', label: 'VIP Vault', target: 'vault', visible: true },
+  { id: 'nav-membership', label: 'Membership', target: 'membership', visible: true },
+  { id: 'nav-about', label: 'About', target: 'about', visible: true }
+];
+
+export const DEFAULT_FOOTER_MENU: NavMenuItem[] = [
+  { id: 'fnav-home', label: 'Home', target: 'home', visible: true },
+  { id: 'fnav-tips', label: 'Feminine & Style Tips', target: 'tips', visible: true },
+  { id: 'fnav-journal', label: 'Personal Journal', target: 'blog', visible: true },
+  { id: 'fnav-vault', label: '4K VIP Vault', target: 'vault', visible: true },
+  { id: 'fnav-membership', label: 'Membership Tiers', target: 'membership', visible: true },
+  { id: 'fnav-about', label: 'About Isabella', target: 'about', visible: true },
+  { id: 'fnav-concierge', label: 'Private Concierge', target: 'contact', visible: true }
+];
 
 export const ISABELLA_HERO_IMG = heroPortraitImg;
 export const ISABELLA_AVATAR_IMG = profileAvatarImg;
@@ -105,11 +136,15 @@ Once thermal sculpting is complete, never pat the face completely dry. While ski
 
 Skip heavy mattifying powders across the outer perimeter of your face. When you preserve natural lipid bounce underneath a sheer luminous skin tint, your complexion catches ambient candlelight like porcelain throughout an entire evening. Hydrated, drained, and sculpted skin requires half the makeup and photographs twice as effortlessly in high-definition 4K.`,
     readTime: '4 min read',
-    date: 'Today',
+    date: 'Nov 13, 2026',
+    status: 'published',
     featuredOnHome: true,
     isPrivateVIP: false,
     isShareToUnlock: false,
-    likes: 1420
+    likes: 1420,
+    seoTitle: '10-Minute Cryo Facial Drainage Ritual for Glass Skin | Isabella Rose',
+    seoDescription: 'Discover Isabella Rose’s pre-shoot 4°C cryo facial sculpting, rose hydrosol micro-layering, and evening luminosity routine.',
+    seoKeywords: 'cryo facial, glass skin ritual, lymphatic drainage, luxury skincare'
   },
   {
     id: 'tip-2',
@@ -133,11 +168,15 @@ Luxury is immediately audible and visible in how fabric moves when you walk. Pri
 
 Elongate your vertical line by matching hosiery or evening heel tones closely to your hemline or skin tone. A pointed-toe Italian suede stiletto or sleek slingback shifts posture upright, naturally lifting the chin and lengthening the calf line. Practice walking smoothly from the hip with relaxed arms—when fabric glides behind you effortlessly, the entire room registers quiet authority before you ever speak.`,
     readTime: '5 min read',
-    date: 'Yesterday',
+    date: 'Nov 12, 2026',
+    status: 'published',
     featuredOnHome: true,
     isPrivateVIP: false,
     isShareToUnlock: true,
-    likes: 2180
+    likes: 2180,
+    seoTitle: 'Effortless Haute Couture & Monochromatic Contrast | Isabella Rose',
+    seoDescription: 'Master minimalist luxury dressing with silk drape, seam structure, and sculptural Italian accessories.',
+    seoKeywords: 'haute couture styling, monochromatic luxury fashion, tailoring'
   },
   {
     id: 'tip-3',
@@ -161,11 +200,15 @@ Once your botanical oil base settles into the skin for five minutes, mist a high
 
 Pair your olfactory signature with tactile contrast inside your private space. Cool washed silk sheets against warm oil-scented skin, dim 2200K amber bedside illumination, and unhurried breathing heighten every touch. As heart rate and skin temperature rise naturally in intimate moments, your layered fragrance unfurls in slow, intoxicating waves that linger long after midnight.`,
     readTime: '5 min read',
-    date: 'Nov 11',
+    date: 'Nov 11, 2026',
+    status: 'published',
     featuredOnHome: true,
     isPrivateVIP: true,
     isShareToUnlock: true,
-    likes: 3890
+    likes: 3890,
+    seoTitle: 'Midnight Fragrance Layering & Sensual Presence (18+) | Isabella Rose',
+    seoDescription: 'Build an intoxicating after-midnight olfactory signature combining warm vanilla body oils and smoky oud extraits.',
+    seoKeywords: 'fragrance layering, sensual perfume ritual, oud extrait'
   },
   {
     id: 'tip-4',
@@ -189,11 +232,15 @@ Follow the golden outside-in rule: begin with the outermost fork and knife for t
 
 When consulting with a head sommelier, communicate flavor preferences rather than price anxiety: mention whether you gravitate toward bone-dry mineral Blanc de Blancs, velvety Pinot Noir expressions, or nutty aged vintages. Speaking calmly and appreciatively to table staff creates immediate warmth and often unlocks cellar pours never listed on the printed menu.`,
     readTime: '4 min read',
-    date: 'Nov 10',
+    date: 'Nov 10, 2026',
+    status: 'published',
     featuredOnHome: true,
     isPrivateVIP: false,
     isShareToUnlock: false,
-    likes: 1290
+    likes: 1290,
+    seoTitle: 'Michelin Fine Dining & Vintage Champagne Etiquette | Isabella Rose',
+    seoDescription: 'Navigate 7-course tasting menus, crystal stemware temperature, and insider champagne pairings with poise.',
+    seoKeywords: 'michelin dining etiquette, vintage champagne pairing, crystal stemware'
   },
   {
     id: 'tip-5',
@@ -217,11 +264,15 @@ Stiffly held poses always read as tense on camera. Instead, exhale slowly throug
 
 The most magnetic private stills preserve intentional mystery—crop close on a bare shoulder framed by pearl earrings, catch silhouette reflections inside an antique gilded mirror, or shoot through sheer tulle curtains. When the viewer's imagination participates in the frame, every image feels timeless, cinematic, and deeply personal.`,
     readTime: '5 min read',
-    date: 'Nov 09',
+    date: 'Nov 09, 2026',
+    status: 'published',
     featuredOnHome: true,
     isPrivateVIP: true,
     isShareToUnlock: false,
-    likes: 4520
+    likes: 4520,
+    seoTitle: 'Boudoir Chiaroscuro Lighting & Silhouette Posing (18+) | Isabella Rose',
+    seoDescription: 'Create sculptural 4K intimate portraits using warm 2400K side lighting, breathwork pacing, and classic chiaroscuro framing.',
+    seoKeywords: 'boudoir photography lighting, chiaroscuro posing, intimate portrait secrets'
   }
 ];
 
@@ -232,6 +283,8 @@ export const DEFAULT_STORE_DATA: AppStoreData = {
     siteNameBn: 'Isabella Rose — VIP Sanctum',
     taglineEn: 'Luxury, Sensual Haute Style & Confidential Diaries',
     taglineBn: 'Luxury, Sensual Haute Style & Confidential Diaries',
+    seoMetaDescription: 'Official VIP sanctum, haute couture lifestyle journal, culinary notes, feminine style masterclasses, and private 4K media vault of Isabella Rose.',
+    canonicalUrl: '',
     logoUrl: '',
     heroBgImage: heroPortraitImg,
     avatarImage: profileAvatarImg,
@@ -242,6 +295,8 @@ export const DEFAULT_STORE_DATA: AppStoreData = {
     conciergeImage: heroPortraitImg,
     customHeadHtml: '',
     customAdSlotHtml: '',
+    headerMenuItems: DEFAULT_HEADER_MENU,
+    footerMenuItems: DEFAULT_FOOTER_MENU,
     contactEmail: 'cuteisabellarose@gmail.com',
     contactPhone: '+1 (555) 728-4902',
     instagramUrl: 'https://instagram.com/isabellarose',
@@ -404,11 +459,14 @@ Once the final runway lights dim, Paris comes alive behind discreet courtyard do
       showInFooter: true,
       featuredOnHome: true,
       status: 'published',
-      date: 'Today, 08:30 AM',
+      date: 'Nov 13, 2026',
       readTime: '6 min read',
       isPrivateVIP: false,
       isShareToUnlock: false,
-      likes: 2480
+      likes: 2480,
+      seoTitle: 'Paris Haute Couture Fashion Week Lookbook & Guide | Isabella Rose',
+      seoDescription: 'Structured minimalism meets unabashed opulence in the Grand Palais—Isabella Rose shares her 2026 couture styling diary.',
+      seoKeywords: 'Paris Haute Couture, luxury styling guide, Avenue Montaigne lookbook'
     },
     {
       id: 'blog-2',
@@ -445,11 +503,14 @@ Finish a memorable French dinner without heavy cloying sweetness. Opt instead fo
       showInFooter: true,
       featuredOnHome: true,
       status: 'published',
-      date: 'Yesterday, 07:15 PM',
+      date: 'Nov 12, 2026',
       readTime: '6 min read',
       isPrivateVIP: false,
       isShareToUnlock: false,
-      likes: 3120
+      likes: 3120,
+      seoTitle: 'Midnight in St. Germain: Truffles & Vintage Champagne | Isabella Rose',
+      seoDescription: 'An intimate culinary itinerary through Paris rooftop salons featuring Gillardeau oysters, black truffles, and 2012 Blanc de Blancs.',
+      seoKeywords: 'Saint Germain fine dining, vintage champagne, black truffles Paris'
     },
     {
       id: 'blog-3',
@@ -529,21 +590,109 @@ Alongside tonight's diary entry, VIP Inner Circle and Black Diamond members rece
       readTime: '7 min read',
       isPrivateVIP: true,
       isShareToUnlock: true,
-      likes: 4120
+      likes: 4120,
+      seoTitle: 'Late Night Penthouse Diaries: Uncensored VIP Chronicle | Isabella Rose',
+      seoDescription: 'Uncensored 4K boudoir diary and behind-the-scenes midnight confessions from Milan’s luxury penthouse suites.',
+      seoKeywords: 'VIP penthouse diary, boudoir behind the scenes, Isabella Rose VIP'
     }
   ],
   tips: INITIAL_TIPS,
   pages: [
     {
+      id: 'page-about',
+      titleEn: 'About Isabella Rose',
+      titleBn: '',
+      slug: 'about',
+      bannerImage: profileAvatarImg,
+      content: `## Sensuality Is Power in Its Most Poetic Form
+
+Born with an insatiable devotion to European aesthetics, I spent my early twenties modeling inside **Milanese haute couture ateliers** and documenting clandestine supper clubs across **Saint-Germain-des-Prés**. What began as a private travel diary evolved into an international sanctuary of over **1.2 million discerning readers**.
+
+![Editorial Portrait in Milan Studio](${fashionEditorialImg})
+
+## Why This Independent VIP Sanctum Exists
+
+Because mainstream social networks compress artistic intimacy and censor candid feminine expression, I established this independent space without middlemen or algorithmic interference.
+
+- **Unfiltered Photography & 35mm Stills:** Shot in private suites across Paris, Lake Como, and Manhattan in pristine 4K resolution.
+- **Intimate Masterclasses & Tips:** Daily long-form writing on olfactory layering, quiet luxury tailoring, Michelin dining choreography, and midnight confidence.
+- **Direct Patron Connection:** Every VIP Inner Circle & Black Diamond patron directly supports fearless visual cinema and unfiltered storytelling.`,
+      showInHeader: true,
+      showInFooter: true,
+      status: 'published',
+      lastUpdated: 'Nov 2026',
+      seoTitle: 'About Isabella Rose | Luxury Muse, Model & VIP Creator',
+      seoDescription: 'Meet Isabella Rose—international haute couture muse, fine dining curator, and founder of the independent Isabella Rose VIP Sanctum.',
+      seoKeywords: 'Isabella Rose biography, luxury influencer, haute couture muse'
+    },
+    {
+      id: 'page-membership',
+      titleEn: 'VIP Membership Tiers',
+      titleBn: '',
+      slug: 'membership',
+      bannerImage: vipLoungeImg,
+      content: `## Step Behind the Velvet Curtain
+
+Becoming an **Isabella Rose VIP Patron** grants immediate, uninterrupted access to my private media archives, uncut boudoir galleries, 4K midnight cinema reels, and adult 18+ intimate diaries.
+
+- **Instant Digital Activation:** Checkout smoothly via PayPal, Stripe Credit/Debit Card, or USDT Crypto with private billing discretion.
+- **Zero Algorithmic Censorship:** Experience raw 4K visual artistry and unedited voice & diary releases reserved strictly for private members.`,
+      showInHeader: true,
+      showInFooter: true,
+      status: 'published',
+      lastUpdated: 'Nov 2026',
+      seoTitle: 'VIP Membership Tiers | Isabella Rose Inner Circle',
+      seoDescription: 'Join Isabella Rose VIP Inner Circle or Black Diamond tier for uncensored 4K video reels, boudoir albums, and 18+ intimate chronicles.',
+      seoKeywords: 'Isabella Rose VIP membership, Black Diamond access, private vault'
+    },
+    {
+      id: 'page-concierge',
+      titleEn: 'Private Concierge',
+      titleBn: '',
+      slug: 'concierge',
+      bannerImage: heroPortraitImg,
+      content: `## 24/7 Discreet Patron & Press Desk
+
+Every confidential message submitted through our encrypted concierge desk is reviewed personally by Isabella’s Milan and Paris management team within **12 hours**.
+
+- **VIP Billing & Vault Support:** Priority assistance for PayPal, Stripe, or Crypto activation inquiries.
+- **Luxury Brand Collaborations:** Editorial campaigns, showroom previews, and bespoke creative direction across Europe and North America.`,
+      showInHeader: false,
+      showInFooter: true,
+      status: 'published',
+      lastUpdated: 'Nov 2026',
+      seoTitle: 'Private Concierge & Management Desk | Isabella Rose',
+      seoDescription: 'Contact Isabella Rose’s discreet concierge desk for VIP patron support, couture partnerships, and private event invitations.',
+      seoKeywords: 'Isabella Rose concierge, brand collaboration, VIP support'
+    },
+    {
       id: 'page-2',
       titleEn: 'VIP Membership & Access Terms',
       titleBn: '',
       slug: 'membership-terms',
-      content: `All VIP material, boudoir photography, and 4K video reels published inside the Isabella Rose Vault are protected by international copyright law.\n\nMembers receive instant 24/7 access upon checkout. Screenshots, external re-uploads, or distribution are strictly prohibited and result in immediate membership revocation.`,
+      bannerImage: vipLoungeImg,
+      content: `## Copyright & Private Vault Protection
+
+All VIP photography, 4K midnight cinema reels, masterclass essays, and boudoir journals published inside **Isabella Rose VIP Sanctum** are original works protected under international copyright and intellectual property treaties.
+
+![Velvet Suite Private Archive Policy](${vipLoungeImg})
+
+## Patron Privileges & Privacy Guarantees
+
+- **Instant 24/7 Unlock:** Verified subscribers receive uninterrupted vault, gallery, and adult 18+ article access immediately upon checkout confirmation.
+- **Discreet Statement Privacy:** All transactions appear quietly under **IR-Studio Digital** to safeguard every member’s personal confidentiality.
+- **Strict Non-Distribution Covenant:** Screen capture, unauthorized re-uploading, mirroring, or external sharing of private VIP files results in permanent revocation of access without refund.
+
+### Billing Flexibility & Concierge Care
+
+Memberships may be paused or cancelled anytime without penalty. If you require billing assistance or custom vault support, reach our encrypted desk directly via **Private Concierge**.`,
       showInHeader: false,
       showInFooter: true,
       status: 'published',
-      lastUpdated: 'Nov 2026'
+      lastUpdated: 'Nov 2026',
+      seoTitle: 'VIP Membership & Access Terms | Isabella Rose Sanctum',
+      seoDescription: 'Read official patron privacy guarantees, discreet billing terms, and copyright protections for Isabella Rose VIP Sanctum.',
+      seoKeywords: 'VIP membership terms, discreet billing, Isabella Rose privacy policy'
     }
   ],
   comments: [
@@ -683,17 +832,21 @@ export function generateAutoSeoTips(): TipItem[] {
     category: t.cat,
     isAdult18: t.isAdult,
     image: t.img,
-    content: `${t.intro}\n\n${t.pillars.join('\n\n')}\n\n## Final Takeaway for Tonight\n\nReal sophistication never arrives from rushing through checklists; it emerges whenever you commit ten quiet minutes to intentional detail before stepping out into the evening. Choose one habit from this masterclass to practice tonight—whether dimming harsh overhead bulbs, priming warm pulse points, or holding your gaze three seconds longer—and watch how effortlessly the energy around you transforms.`,
+    content: `${t.intro}\n\n${t.pillars.join('\n\n')}\n\n## Editorial Application Checklist\n\n- **Environment Calibration:** Replace harsh overhead lighting with warm 2200K accents and breathable natural textures before preparing for evening appearances.\n- **Sensory Anchoring:** Apply hydrated botanical serum or warm amber oil onto clean skin before dressing so scent and texture remain cohesive all evening.\n- **Unhurried Composure:** Slow your arrival stride and conversational cadence intentionally so your presence registers effortless authority.\n\n## Final Takeaway for Tonight\n\nReal sophistication never arrives from rushing through checklists; it emerges whenever you commit ten quiet minutes to intentional detail before stepping out into the evening. Choose one habit from this masterclass to practice tonight—whether dimming harsh overhead bulbs, priming warm pulse points, or holding your gaze three seconds longer—and watch how effortlessly the energy around you transforms.`,
     readTime: '5 min read',
-    date: 'Today',
+    date: formatTodayDate(),
+    status: 'published',
     featuredOnHome: true,
     isPrivateVIP: t.isPrivate,
     isShareToUnlock: t.shareUnlock,
-    likes: Math.floor(Math.random() * 900 + 420)
+    likes: Math.floor(Math.random() * 900 + 420),
+    seoTitle: `${t.title} | Isabella Rose Masterclass`,
+    seoDescription: t.intro.slice(0, 155),
+    seoKeywords: `${t.cat}, Isabella Rose tips, luxury lifestyle masterclass`
   }));
 }
 
-/** Generates 10 SEO-complete 850–1,000 word Daily Blog Articles across categories */
+/** Generates 10 SEO-complete Daily Blog Articles across categories (850+ words, unlimited upper length) */
 export function generateAutoSeoBlogs(categories: string[]): BlogPost[] {
   const stamp = Date.now();
   const topics = [
@@ -834,11 +987,14 @@ Carry at least one tactile ritual from this chronicle into your evening tonight�
       showInFooter: true,
       featuredOnHome: idx < 4,
       status: 'published',
-      date: 'Auto-Published Today',
+      date: formatTodayDate(),
       readTime: '7 min read',
       isPrivateVIP: t.isVip,
       isShareToUnlock: t.shareUnlock,
-      likes: Math.floor(Math.random() * 1800 + 600)
+      likes: Math.floor(Math.random() * 1800 + 600),
+      seoTitle: `${t.title} | Isabella Rose Journal`,
+      seoDescription: t.subtitle,
+      seoKeywords: `${t.cat}, luxury lifestyle blog, Isabella Rose`
     };
   });
 }

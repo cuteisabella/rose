@@ -38,6 +38,13 @@ export interface MediaItem {
   featuredOnHome?: boolean;
 }
 
+export interface NavMenuItem {
+  id: string;
+  label: string;
+  target: string; // 'home' | 'tips' | 'blog' | 'vault' | 'membership' | 'about' | 'contact' | '/page/...' | 'https://...'
+  visible: boolean;
+}
+
 export interface VideoItem {
   id: string;
   brandName: string;
@@ -56,6 +63,9 @@ export interface VideoItem {
   featuredOnHome: boolean;
   isPrivateVIP: boolean;
   isShareToUnlock?: boolean; // Free user can unlock by social media share
+  seoTitle?: string;
+  seoDescription?: string;
+  seoKeywords?: string;
 }
 
 export interface TipItem {
@@ -67,10 +77,14 @@ export interface TipItem {
   content: string;
   readTime: string;
   date: string;
+  status: 'published' | 'draft';
   featuredOnHome: boolean;
   isPrivateVIP: boolean;
   isShareToUnlock?: boolean;
   likes: number;
+  seoTitle?: string;
+  seoDescription?: string;
+  seoKeywords?: string;
 }
 
 export interface BlogPost {
@@ -92,6 +106,9 @@ export interface BlogPost {
   isPrivateVIP: boolean;
   isShareToUnlock?: boolean; // Can unlock by social share
   likes: number;
+  seoTitle?: string;
+  seoDescription?: string;
+  seoKeywords?: string;
 }
 
 export interface ExtraPageItem {
@@ -99,11 +116,15 @@ export interface ExtraPageItem {
   titleEn: string;
   titleBn: string;
   slug: string;
+  bannerImage?: string;
   content: string;
   showInHeader: boolean;
   showInFooter: boolean;
   status: 'published' | 'draft';
   lastUpdated: string;
+  seoTitle?: string;
+  seoDescription?: string;
+  seoKeywords?: string;
 }
 
 export interface CommentItem {
@@ -134,6 +155,8 @@ export interface SiteSettings {
   siteNameBn: string;
   taglineEn: string;
   taglineBn: string;
+  seoMetaDescription?: string;
+  canonicalUrl?: string;
   logoUrl: string;
   heroBgImage: string;
   contactEmail: string;
@@ -162,6 +185,8 @@ export interface SiteSettings {
   conciergeImage?: string;
   customHeadHtml?: string;
   customAdSlotHtml?: string;
+  headerMenuItems?: NavMenuItem[];
+  footerMenuItems?: NavMenuItem[];
   categories: string[];
 }
 
