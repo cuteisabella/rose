@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { 
-  ArrowLeft, 
+  ArrowLeft,
+  ArrowRight,
   Lock, 
   Calendar, 
   Clock, 
@@ -11,7 +12,8 @@ import {
   MessageSquare,
   Send,
   CheckCircle2,
-  Check
+  Check,
+  Link2
 } from 'lucide-react';
 import { BlogPost, CommentItem, UserSubscription } from '../types';
 import { resolveAssetUrl } from '../defaultStore';
@@ -20,22 +22,40 @@ import { ShareUnlockGatePanel } from './ShareUnlockModal';
 
 interface PostDetailModalProps {
   post: BlogPost | null;
+  allPosts?: BlogPost[];
   comments: CommentItem[];
   subscription: UserSubscription;
   unlockedShareIds: string[];
   onClose: () => void;
+  onSelectPost?: (post: BlogPost) => void;
   onOpenVIPModal: () => void;
   onVerifiedShareUnlock: (id: string) => void;
   onLikePost: (id: string) => void;
   onAddComment: (postId: string, postTitle: string, name: string, email: string, text: string) => void;
 }
 
+function getWordAndReadMetrics(content: string) {
+  const plainContent = content
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/[#>*_`~-]/g, ' ')
+    .trim();
+  const wordCount = plainContent ? plainContent.split(/\s+/).length : 0;
+  const estimatedMinutes = Math.max(1, Math.ceil(wordCount / 200));
+  return {
+    wordCount,
+    estimatedReadTime: `${estimatedMinutes} min read`
+  };
+}
+
 export const PostDetailModal: React.FC<PostDetailModalProps> = ({
   post,
+  allPosts = [],
   comments,
   subscription,
   unlockedShareIds,
   onClose,
+  onSelectPost,
   onOpenVIPModal,
   onVerifiedShareUnlock,
   onLikePost,
@@ -46,6 +66,34 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
   const [commentText, setCommentText] = useState('');
   const [commentSubmitted, setCommentSubmitted] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [scrollProgress, setScrollProgress] = useState(0);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  const updateScrollProgress = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const maxScroll = el.scrollHeight - el.clientHeight;
+    if (maxScroll <= 0) {
+      setScrollProgress(0);
+      return;
+    }
+    const nextProgress = Math.min(100, Math.max(0, (el.scrollTop / maxScroll) * 100));
+    setScrollProgress(nextProgress);
+  }, []);
+
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (el) {
+      el.scrollTop = 0;
+    }
+    setScrollProgress(0);
+    const frame = requestAnimationFrame(() => updateScrollProgress());
+    window.addEventListener('resize', updateScrollProgress, { passive: true });
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener('resize', updateScrollProgress);
+    };
+  }, [post?.id, updateScrollProgress]);
 
   if (!post) return null;
 
@@ -54,7 +102,47 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
   const isLocked =
     (post.isPrivateVIP || Boolean(post.isShareToUnlock)) && !isVipUnlocked && !isShareUnlocked;
   const postComments = comments.filter(c => c.postId === post.id && c.status === 'approved');
-  const wordCount = post.content.trim().split(/\s+/).length;
+  const { wordCount, estimatedReadTime } = getWordAndReadMetrics(post.content);
+
+  const normalizedCategory = (post.category || '').trim().toLowerCase();
+  const candidatePosts = allPosts.filter((p) => p.id !== post.id && p.status === 'published');
+  const sameCategoryPosts = candidatePosts.filter(
+    (p) => (p.category || '').trim().toLowerCase() === normalizedCategory
+  );
+  const fallbackCategoryPosts = candidatePosts.filter(
+    (p) => (p.category || '').trim().toLowerCase() !== normalizedCategory
+  );
+  const recommendedPosts = [...sameCategoryPosts, ...fallbackCategoryPosts].slice(0, 2);
+
+  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://isabellamyth.netlify.app';
+  const articleUrl = `${origin}/blog/${post.slug}`;
+  const encodedArticleUrl = encodeURIComponent(articleUrl);
+  const encodedArticleTitle = encodeURIComponent(post.titleEn);
+  const twitterShareUrl = `https://twitter.com/intent/tweet?url=${encodedArticleUrl}&text=${encodedArticleTitle}`;
+  const facebookShareUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodedArticleUrl}`;
+
+  const copyTextToClipboard = async (value: string) => {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+    } else {
+      const tempInput = document.createElement('input');
+      tempInput.value = value;
+      document.body.appendChild(tempInput);
+      tempInput.select();
+      document.execCommand('copy');
+      document.body.removeChild(tempInput);
+    }
+  };
+
+  const handleCopyArticleLink = async () => {
+    try {
+      await copyTextToClipboard(articleUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2200);
+    } catch {
+      /* ignore clipboard permission failure */
+    }
+  };
 
   const handleSubmitComment = (e: React.FormEvent) => {
     e.preventDefault();
@@ -77,6 +165,21 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
         onClick={(e) => e.stopPropagation()}
         className="relative w-full max-w-4xl max-h-[90vh] bg-[#110c19] border border-[#e5b36b]/35 rounded-2xl shadow-2xl overflow-hidden flex flex-col"
       >
+        {/* Subtle reading progress bar pinned at top edge of modal */}
+        <div
+          className="h-[3px] w-full bg-white/5 shrink-0 overflow-hidden"
+          role="progressbar"
+          aria-label="Article reading progress"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.round(scrollProgress)}
+        >
+          <div
+            className="h-full w-full bg-gradient-to-r from-[#b07f43] via-[#e7c792] to-[#f4dfb6] origin-left transition-transform duration-100 ease-out"
+            style={{ transform: `scaleX(${scrollProgress / 100})` }}
+          />
+        </div>
+
         {/* Top bar */}
         <div className="p-4 border-b border-stone-800/80 flex items-center justify-between bg-[#161021] shrink-0">
           <button
@@ -87,31 +190,72 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
             Back to Articles
           </button>
           
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 shrink-0">
             <button
+              type="button"
               onClick={() => onLikePost(post.id)}
-              className="flex items-center gap-1.5 text-xs text-rose-400 hover:text-rose-300 px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 transition-colors"
+              className="flex items-center gap-1.5 text-xs text-rose-400 hover:text-rose-300 px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 transition-colors whitespace-nowrap shrink-0"
             >
               <Heart className="w-3.5 h-3.5 fill-current" />
-              <span>{post.likes}</span>
+              <span className="tabular-nums">{post.likes}</span>
             </button>
-            <button
-              onClick={() => {
-                navigator.clipboard?.writeText(window.location.href).catch(() => {});
-                setCopied(true);
-                setTimeout(() => setCopied(false), 2000);
-              }}
-              className="px-2.5 py-1.5 text-xs text-stone-300 hover:text-white rounded-lg hover:bg-stone-800 transition-colors flex items-center gap-1"
-              title="Share Article"
+
+            <a
+              href={twitterShareUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Share on Twitter"
+              title="Share on Twitter"
+              className="p-2 sm:px-2.5 sm:py-1.5 text-xs text-stone-300 hover:text-white rounded-lg border border-white/10 bg-white/[0.03] hover:bg-white/10 transition-colors inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
             >
-              {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Share2 className="w-4 h-4" />}
-              {copied && <span className="text-[11px] text-emerald-400">Copied</span>}
+              <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+              </svg>
+              <span className="hidden md:inline">Twitter</span>
+            </a>
+
+            <a
+              href={facebookShareUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Share on Facebook"
+              title="Share on Facebook"
+              className="p-2 sm:px-2.5 sm:py-1.5 text-xs text-stone-300 hover:text-white rounded-lg border border-white/10 bg-white/[0.03] hover:bg-white/10 transition-colors inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
+            >
+              <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M13.5 21v-7.5h2.5l.5-3h-3v-2c0-.9.3-1.5 1.6-1.5h1.5V4.2c-.3 0-1.2-.2-2.3-.2-2.3 0-3.8 1.4-3.8 3.9v2.6H8v3h2.5V21z" />
+              </svg>
+              <span className="hidden md:inline">Facebook</span>
+            </a>
+
+            <button
+              type="button"
+              onClick={handleCopyArticleLink}
+              aria-label="Copy article link"
+              title="Copy Link"
+              className="px-2.5 py-1.5 text-xs text-stone-300 hover:text-white rounded-lg border border-white/10 bg-white/[0.03] hover:bg-white/10 transition-colors inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
+            >
+              {copied ? (
+                <>
+                  <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                  <span className="text-emerald-400">Copied</span>
+                </>
+              ) : (
+                <>
+                  <Link2 className="w-3.5 h-3.5 shrink-0" />
+                  <span className="hidden sm:inline">Copy Link</span>
+                </>
+              )}
             </button>
           </div>
         </div>
 
         {/* Scrollable Content Body */}
-        <div className="p-5 sm:p-10 overflow-y-auto flex-1">
+        <div
+          ref={scrollContainerRef}
+          onScroll={updateScrollProgress}
+          className="p-5 sm:p-10 overflow-y-auto flex-1"
+        >
           {/* Metadata */}
           <div className="flex flex-wrap items-center gap-3 text-xs text-stone-400 mb-3">
             <span className="text-[#e5b36b] font-semibold tracking-wider uppercase">{post.category}</span>
@@ -121,9 +265,12 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
               {post.date}
             </span>
             <span>·</span>
-            <span className="flex items-center gap-1">
+            <span
+              className="flex items-center gap-1"
+              title={`Estimated reading time based on ${wordCount.toLocaleString()} words`}
+            >
               <Clock className="w-3.5 h-3.5" />
-              {post.readTime} ({wordCount} words)
+              <span>{estimatedReadTime} ({wordCount.toLocaleString()} words)</span>
             </span>
             {post.isPrivateVIP && (
               <>
@@ -211,8 +358,60 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
             </div>
           )}
 
+          {/* SHARE BAR */}
+          <div className="mt-10 pt-6 border-t border-stone-800/80 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div className="flex items-center gap-2 text-xs text-stone-300">
+              <Share2 className="w-4 h-4 text-[#e5b36b] shrink-0" />
+              <span className="font-medium text-white">Share this article</span>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2.5">
+              <a
+                href={twitterShareUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-3.5 py-2 rounded-lg border border-white/15 bg-white/[0.04] hover:bg-white/10 text-stone-100 text-xs font-medium inline-flex items-center gap-2 transition-colors whitespace-nowrap shrink-0"
+              >
+                <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+                </svg>
+                <span>Twitter</span>
+              </a>
+
+              <a
+                href={facebookShareUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-3.5 py-2 rounded-lg border border-white/15 bg-white/[0.04] hover:bg-white/10 text-stone-100 text-xs font-medium inline-flex items-center gap-2 transition-colors whitespace-nowrap shrink-0"
+              >
+                <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <path d="M13.5 21v-7.5h2.5l.5-3h-3v-2c0-.9.3-1.5 1.6-1.5h1.5V4.2c-.3 0-1.2-.2-2.3-.2-2.3 0-3.8 1.4-3.8 3.9v2.6H8v3h2.5V21z" />
+                </svg>
+                <span>Facebook</span>
+              </a>
+
+              <button
+                type="button"
+                onClick={handleCopyArticleLink}
+                className="px-3.5 py-2 rounded-lg border border-[#e5b36b]/40 bg-[#e5b36b]/10 hover:bg-[#e5b36b]/20 text-[#f3d6a2] text-xs font-medium inline-flex items-center gap-2 transition-colors whitespace-nowrap shrink-0"
+              >
+                {copied ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                    <span className="text-emerald-300">Link Copied</span>
+                  </>
+                ) : (
+                  <>
+                    <Link2 className="w-3.5 h-3.5 shrink-0" />
+                    <span>Copy Link</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
           {/* COMMENTS SYSTEM SECTION */}
-          <div className="mt-12 pt-8 border-t border-stone-800 space-y-6">
+          <div className="mt-8 pt-8 border-t border-stone-800 space-y-6">
             <div className="flex items-center justify-between">
               <h3 className="text-xl font-serif-display font-bold text-white flex items-center gap-2">
                 <MessageSquare className="w-5 h-5 text-[#e5b36b]" />
@@ -288,6 +487,77 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
               )}
             </div>
           </div>
+
+          {/* RECOMMENDED CONTENT SECTION */}
+          {recommendedPosts.length > 0 && onSelectPost && (
+            <section className="mt-10 pt-8 border-t border-stone-800/80 space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2">
+                <div>
+                  <h3 className="text-xl font-serif-display font-bold text-white">
+                    Recommended Content
+                  </h3>
+                  <p className="text-xs text-stone-400 mt-0.5">
+                    Selected stories curated from {sameCategoryPosts.length > 0 ? post.category : 'the editorial archive'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {recommendedPosts.map((rec) => {
+                  const recMetrics = getWordAndReadMetrics(rec.content);
+                  const recImage = resolveAssetUrl(rec.bannerImage);
+                  return (
+                    <button
+                      key={rec.id}
+                      type="button"
+                      onClick={() => onSelectPost(rec)}
+                      className="group text-left rounded-xl bg-[#161021] border border-stone-800 hover:border-[#e5b36b]/45 overflow-hidden transition-colors flex flex-col"
+                    >
+                      <div className="relative h-36 w-full bg-gradient-to-br from-[#231530] via-[#170f22] to-[#0d0914] overflow-hidden shrink-0">
+                        {recImage && (
+                          <img
+                            src={recImage}
+                            alt={rec.titleEn}
+                            referrerPolicy="no-referrer"
+                            onError={(e) => {
+                              e.currentTarget.style.display = 'none';
+                            }}
+                            className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-300"
+                          />
+                        )}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/20 to-transparent" />
+                      </div>
+
+                      <div className="p-4 flex-1 flex flex-col justify-between gap-3">
+                        <div className="space-y-1.5">
+                          <div className="flex flex-wrap items-center gap-2 text-[11px] text-stone-400">
+                            <span className="text-[#e5b36b] font-medium">{rec.category}</span>
+                            <span aria-hidden="true">·</span>
+                            <span>{rec.date}</span>
+                            <span aria-hidden="true">·</span>
+                            <span>{recMetrics.estimatedReadTime}</span>
+                          </div>
+                          <h4 className="text-base font-serif-display font-semibold text-white group-hover:text-[#f6e2bb] transition-colors line-clamp-2 leading-snug">
+                            {rec.titleEn}
+                          </h4>
+                          {rec.subtitle && (
+                            <p className="text-xs text-stone-400 line-clamp-2 leading-relaxed">
+                              {rec.subtitle}
+                            </p>
+                          )}
+                        </div>
+
+                        <div className="inline-flex items-center gap-1.5 text-xs font-medium text-[#e5b36b] group-hover:text-[#f6e2bb] transition-colors">
+                          <span>Read Story</span>
+                          <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          )}
         </div>
       </div>
     </div>

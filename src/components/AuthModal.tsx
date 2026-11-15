@@ -1,5 +1,5 @@
 import React from 'react';
-import { Crown, Sparkles, LogOut, ArrowRight, X } from 'lucide-react';
+import { Crown, Sparkles, LogOut, ArrowRight, X, User } from 'lucide-react';
 import { UserSubscription } from '../types';
 
 interface AuthModalProps {
@@ -10,6 +10,7 @@ interface AuthModalProps {
   blackDiamondPrice?: number;
   onUpgrade: (tier: 'VIP Member' | 'Black Diamond VIP') => void;
   onSignOut: () => void;
+  onOpenProfile?: () => void;
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({
@@ -19,7 +20,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   vipMonthlyPrice = 5.99,
   blackDiamondPrice = 14.99,
   onUpgrade,
-  onSignOut
+  onSignOut,
+  onOpenProfile
 }) => {
   if (!isOpen) return null;
 
@@ -57,21 +59,35 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
         {subscription.tier !== 'Free' ? (
           <div className="bg-[#1b1722] border border-[#c99757]/30 rounded-xl p-5 mb-6">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <span className="text-xs uppercase tracking-wider text-[#c99757] font-medium">Active VIP Privilege</span>
+                <span className="text-xs tracking-wider text-[#c99757] font-medium">Active VIP Privilege</span>
                 <h4 className="text-lg font-semibold text-white mt-1">Full Vault Unlocked</h4>
                 <p className="text-xs text-stone-400 mt-1">
                   You have full unlimited access to all adult private posts, 4K video reels, and confidential diaries.
+                  {subscription.memberSince ? ` Member since ${subscription.memberSince}.` : ''}
                 </p>
               </div>
-              <button
-                onClick={onSignOut}
-                className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-stone-400 hover:text-red-400 bg-stone-900/60 hover:bg-stone-800 rounded-lg transition-colors"
-              >
-                <LogOut className="w-3.5 h-3.5" />
-                Sign Out
-              </button>
+              <div className="flex items-center gap-2 shrink-0">
+                {onOpenProfile && (
+                  <button
+                    type="button"
+                    onClick={onOpenProfile}
+                    className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-stone-950 bg-[#e7c792] hover:bg-[#f0d6a8] rounded-lg transition-colors whitespace-nowrap shrink-0"
+                  >
+                    <User className="w-3.5 h-3.5" />
+                    My Profile
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={onSignOut}
+                  className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-stone-400 hover:text-red-400 bg-stone-900/60 hover:bg-stone-800 rounded-lg transition-colors whitespace-nowrap shrink-0"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  Sign Out
+                </button>
+              </div>
             </div>
           </div>
         ) : null}

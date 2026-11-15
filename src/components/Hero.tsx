@@ -2,6 +2,7 @@ import React from 'react';
 import { ArrowRight, Crown, Sparkles, Lock, Upload, Image as ImageIcon } from 'lucide-react';
 import { UserSubscription, FrontEditableTexts, SiteSettings } from '../types';
 import { ISABELLA_AVATAR_IMG, ISABELLA_HERO_IMG, resolveAssetUrl } from '../defaultStore';
+import { compressImageFileToDataUrl } from '../utils/imageUpload';
 
 interface HeroProps {
   subscription: UserSubscription;
@@ -34,13 +35,9 @@ export const Hero: React.FC<HeroProps> = ({
   const handleFileUpload = (field: keyof SiteSettings, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !onUpdateSettingsImage) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        onUpdateSettingsImage(field, reader.result);
-      }
-    };
-    reader.readAsDataURL(file);
+    compressImageFileToDataUrl(file, (dataUrl) => {
+      onUpdateSettingsImage(field, dataUrl);
+    });
   };
 
   return (

@@ -1,0 +1,263 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Reusable Hardened Helpers
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() &&
+        request.auth.token.email_verified == true &&
+        (
+          request.auth.token.email == 'cuteisabellarose@gmail.com' ||
+          exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+        );
+    }
+
+    function isValidOptionalString(val, maxLen) {
+      return val is string && val.size() <= maxLen;
+    }
+
+    // Boot connection check document
+    match /test/connection {
+      allow get: if true;
+    }
+
+    // Public Site Config (No PII, no adminPasscode)
+    function isValidSitePublicConfig(data) {
+      return data.keys().hasAll(['siteNameEn', 'taglineEn', 'frontTexts', 'updatedAt']) &&
+        data.keys().hasOnly([
+          'siteNameEn', 'taglineEn', 'seoMetaDescription', 'canonicalUrl',
+          'logoUrl', 'heroBgImage', 'avatarImage', 'aboutImage',
+          'tipsFeatureImage1', 'tipsFeatureImage2', 'tipsFeatureImage3',
+          'conciergeImage', 'showreelEmbedLink', 'showreelTitle', 'showreelThumbnail',
+          'currencySymbol', 'vipMonthlyPrice', 'blackDiamondPrice',
+          'paypalMeUrl', 'stripeMonthlyLink', 'stripeQuarterlyLink',
+          'cryptoWalletAddress', 'cryptoNetwork', 'instagramUrl', 'twitterUrl', 'youtubeUrl',
+          'customHeadHtml', 'customAdSlotHtml', 'headerMenuItems', 'footerMenuItems',
+          'categories', 'frontTexts', 'updatedAt'
+        ]) &&
+        data.siteNameEn is string && data.siteNameEn.size() <= 200 &&
+        data.taglineEn is string && data.taglineEn.size() <= 300 &&
+        data.frontTexts is map &&
+        data.updatedAt is string && data.updatedAt.size() <= 100 &&
+        (!('seoMetaDescription' in data) || isValidOptionalString(data.seoMetaDescription, 500)) &&
+        (!('canonicalUrl' in data) || isValidOptionalString(data.canonicalUrl, 500)) &&
+        (!('logoUrl' in data) || isValidOptionalString(data.logoUrl, 300000)) &&
+        (!('heroBgImage' in data) || isValidOptionalString(data.heroBgImage, 300000)) &&
+        (!('avatarImage' in data) || isValidOptionalString(data.avatarImage, 300000)) &&
+        (!('aboutImage' in data) || isValidOptionalString(data.aboutImage, 300000)) &&
+        (!('tipsFeatureImage1' in data) || isValidOptionalString(data.tipsFeatureImage1, 300000)) &&
+        (!('tipsFeatureImage2' in data) || isValidOptionalString(data.tipsFeatureImage2, 300000)) &&
+        (!('tipsFeatureImage3' in data) || isValidOptionalString(data.tipsFeatureImage3, 300000)) &&
+        (!('conciergeImage' in data) || isValidOptionalString(data.conciergeImage, 300000)) &&
+        (!('showreelThumbnail' in data) || isValidOptionalString(data.showreelThumbnail, 300000)) &&
+        (!('customHeadHtml' in data) || isValidOptionalString(data.customHeadHtml, 20000)) &&
+        (!('customAdSlotHtml' in data) || isValidOptionalString(data.customAdSlotHtml, 20000)) &&
+        (!('categories' in data) || (data.categories is list && data.categories.size() <= 50)) &&
+        (!('headerMenuItems' in data) || (data.headerMenuItems is list && data.headerMenuItems.size() <= 30)) &&
+        (!('footerMenuItems' in data) || (data.footerMenuItems is list && data.footerMenuItems.size() <= 40));
+    }
+
+    match /site_public/{docId} {
+      allow get: if isValidId(docId) && docId == 'config';
+      allow create, update: if isAdmin() && isValidId(docId) && docId == 'config' && isValidSitePublicConfig(incoming());
+      allow delete: if isAdmin() && isValidId(docId) && docId == 'config';
+    }
+
+    // Restricted Admin Secrets (Passcode, Private Contact & Payout Emails)
+    function isValidSiteAdminSecrets(data) {
+      return data.keys().hasAll(['adminPasscode', 'updatedAt']) &&
+        data.keys().hasOnly([
+          'adminPasscode', 'contactEmail', 'contactPhone',
+          'paypalEmail', 'stripeAccountLabel', 'updatedAt'
+        ]) &&
+        data.adminPasscode is string && data.adminPasscode.size() >= 4 && data.adminPasscode.size() <= 100 &&
+        data.updatedAt is string && data.updatedAt.size() <= 100;
+    }
+
+    match /site_admin/{docId} {
+      allow get, list: if isAdmin();
+      allow create, update: if isAdmin() && isValidId(docId) && docId == 'secrets' && isValidSiteAdminSecrets(incoming());
+      allow delete: if isAdmin() && isValidId(docId) && docId == 'secrets';
+    }
+
+    // Videos & Galleries
+    function isValidVideoItem(data) {
+      return data.keys().hasAll(['id', 'titleEn', 'type', 'category', 'status']) &&
+        data.keys().hasOnly([
+          'id', 'brandName', 'category', 'type', 'titleEn', 'titleBn',
+          'descriptionEn', 'descriptionBn', 'embedLink', 'thumbnailUrl',
+          'galleryImages', 'duration', 'viewsCount', 'status',
+          'featuredOnHome', 'isPrivateVIP', 'isShareToUnlock',
+          'seoTitle', 'seoDescription', 'seoKeywords', 'sortOrder'
+        ]) &&
+        data.id is string && data.id.size() <= 128 &&
+        data.titleEn is string && data.titleEn.size() <= 300 &&
+        data.type in ['video', 'gallery'] &&
+        data.category is string && data.category.size() <= 100 &&
+        data.status in ['Published', 'Draft'] &&
+        (!('thumbnailUrl' in data) || isValidOptionalString(data.thumbnailUrl, 300000)) &&
+        (!('galleryImages' in data) || (data.galleryImages is list && data.galleryImages.size() <= 30));
+    }
+
+    match /site_videos/{videoId} {
+      allow get: if isValidId(videoId) && (isAdmin() || existing().status == 'Published');
+      allow list: if isAdmin() || resource.data.status == 'Published';
+      allow create, update: if isAdmin() && isValidId(videoId) && isValidVideoItem(incoming());
+      allow delete: if isAdmin() && isValidId(videoId);
+    }
+
+    // Blog Posts
+    function isValidBlogPost(data) {
+      return data.keys().hasAll(['id', 'titleEn', 'slug', 'category', 'content', 'status']) &&
+        data.keys().hasOnly([
+          'id', 'titleEn', 'titleBn', 'slug', 'category', 'subtitle',
+          'bannerImage', 'optionalVideoLink', 'content',
+          'showInHeader', 'showInFooter', 'featuredOnHome', 'status',
+          'date', 'readTime', 'isPrivateVIP', 'isShareToUnlock', 'likes',
+          'seoTitle', 'seoDescription', 'seoKeywords', 'sortOrder'
+        ]) &&
+        data.id is string && data.id.size() <= 128 &&
+        data.titleEn is string && data.titleEn.size() <= 300 &&
+        data.slug is string && data.slug.size() <= 200 &&
+        data.category is string && data.category.size() <= 100 &&
+        data.content is string && data.content.size() <= 250000 &&
+        data.status in ['published', 'draft'] &&
+        (!('bannerImage' in data) || isValidOptionalString(data.bannerImage, 300000));
+    }
+
+    match /site_blogs/{blogId} {
+      allow get: if isValidId(blogId) && (isAdmin() || existing().status == 'published');
+      allow list: if isAdmin() || resource.data.status == 'published';
+      allow create, update: if isAdmin() && isValidId(blogId) && isValidBlogPost(incoming());
+      allow delete: if isAdmin() && isValidId(blogId);
+    }
+
+    // Tips & Masterclasses
+    function isValidTipItem(data) {
+      return data.keys().hasAll(['id', 'title', 'category', 'content', 'status']) &&
+        data.keys().hasOnly([
+          'id', 'title', 'category', 'isAdult18', 'image', 'content',
+          'readTime', 'date', 'status', 'featuredOnHome',
+          'isPrivateVIP', 'isShareToUnlock', 'likes',
+          'seoTitle', 'seoDescription', 'seoKeywords', 'sortOrder'
+        ]) &&
+        data.id is string && data.id.size() <= 128 &&
+        data.title is string && data.title.size() <= 300 &&
+        data.category is string && data.category.size() <= 100 &&
+        data.content is string && data.content.size() <= 200000 &&
+        data.status in ['published', 'draft'] &&
+        (!('image' in data) || isValidOptionalString(data.image, 300000));
+    }
+
+    match /site_tips/{tipId} {
+      allow get: if isValidId(tipId) && (isAdmin() || existing().status == 'published');
+      allow list: if isAdmin() || resource.data.status == 'published';
+      allow create, update: if isAdmin() && isValidId(tipId) && isValidTipItem(incoming());
+      allow delete: if isAdmin() && isValidId(tipId);
+    }
+
+    // Unified Extra & Core Pages
+    function isValidExtraPage(data) {
+      return data.keys().hasAll(['id', 'titleEn', 'slug', 'content', 'status']) &&
+        data.keys().hasOnly([
+          'id', 'titleEn', 'titleBn', 'slug', 'bannerImage', 'content',
+          'showInHeader', 'showInFooter', 'status', 'lastUpdated',
+          'seoTitle', 'seoDescription', 'seoKeywords', 'sortOrder'
+        ]) &&
+        data.id is string && data.id.size() <= 128 &&
+        data.titleEn is string && data.titleEn.size() <= 300 &&
+        data.slug is string && data.slug.size() <= 200 &&
+        data.content is string && data.content.size() <= 250000 &&
+        data.status in ['published', 'draft'] &&
+        (!('bannerImage' in data) || isValidOptionalString(data.bannerImage, 300000));
+    }
+
+    match /site_pages/{pageId} {
+      allow get: if isValidId(pageId) && (isAdmin() || existing().status == 'published');
+      allow list: if isAdmin() || resource.data.status == 'published';
+      allow create, update: if isAdmin() && isValidId(pageId) && isValidExtraPage(incoming());
+      allow delete: if isAdmin() && isValidId(pageId);
+    }
+
+    // Reader Comments (Publicly readable approved docs contain zero email PII)
+    function isValidPublicComment(data) {
+      return data.keys().hasAll(['id', 'postId', 'postTitle', 'authorName', 'commentText', 'createdAt', 'status']) &&
+        data.keys().hasOnly(['id', 'postId', 'postTitle', 'authorName', 'commentText', 'createdAt', 'status']) &&
+        data.id is string && data.id.size() <= 128 &&
+        data.postId is string && data.postId.size() <= 128 &&
+        data.postTitle is string && data.postTitle.size() <= 300 &&
+        data.authorName is string && data.authorName.size() > 0 && data.authorName.size() <= 120 &&
+        data.commentText is string && data.commentText.size() > 0 && data.commentText.size() <= 2000 &&
+        data.createdAt is string && data.createdAt.size() <= 80 &&
+        data.status in ['pending', 'approved', 'rejected'];
+    }
+
+    match /site_comments/{commentId} {
+      allow get: if isValidId(commentId) && (isAdmin() || existing().status == 'approved');
+      allow list: if isAdmin() || resource.data.status == 'approved';
+      allow create: if isValidId(commentId) && isValidPublicComment(incoming()) && (isAdmin() || incoming().status == 'pending');
+      allow update: if isAdmin() && isValidId(commentId) && isValidPublicComment(incoming());
+      allow delete: if isAdmin() && isValidId(commentId);
+    }
+
+    // VIP Member Records (Email PII protected: readable only by Admin)
+    function isValidMemberRecord(data) {
+      return data.keys().hasAll(['id', 'name', 'email', 'tier', 'status', 'joinedDate', 'paymentMethod', 'amountPaid']) &&
+        data.keys().hasOnly(['id', 'name', 'email', 'tier', 'status', 'joinedDate', 'paymentMethod', 'amountPaid']) &&
+        data.id is string && data.id.size() <= 128 &&
+        data.name is string && data.name.size() > 0 && data.name.size() <= 150 &&
+        data.email is string && data.email.size() > 0 && data.email.size() <= 200 &&
+        data.tier in ['VIP Member', 'Black Diamond VIP', 'Free'] &&
+        data.status in ['active', 'cancelled', 'pending'] &&
+        data.joinedDate is string && data.joinedDate.size() <= 80 &&
+        data.paymentMethod is string && data.paymentMethod.size() <= 120 &&
+        data.amountPaid is string && data.amountPaid.size() <= 50;
+    }
+
+    match /site_members/{memberId} {
+      allow get, list: if isAdmin();
+      allow create: if isValidId(memberId) && isValidMemberRecord(incoming());
+      allow update, delete: if isAdmin() && isValidId(memberId);
+    }
+
+    // Newsletter Subscribers (Email PII protected: readable only by Admin, strict schema on create)
+    function isValidNewsletterSubscriber(data) {
+      return data.keys().hasAll(['id', 'email', 'subscribedAt', 'source']) &&
+        data.keys().hasOnly(['id', 'email', 'subscribedAt', 'source']) &&
+        data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
+        data.email is string && data.email.size() >= 5 && data.email.size() <= 200 &&
+        data.email.matches('^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$') &&
+        data.subscribedAt is string && data.subscribedAt.size() > 0 && data.subscribedAt.size() <= 80 &&
+        data.source is string && data.source.size() > 0 && data.source.size() <= 60;
+    }
+
+    match /newsletter_subscribers/{subscriberId} {
+      allow get, list: if isAdmin();
+      allow create: if isValidId(subscriberId) &&
+        isValidNewsletterSubscriber(incoming()) &&
+        incoming().id == subscriberId;
+      allow update, delete: if isAdmin() && isValidId(subscriberId);
+    }
+  }
+}

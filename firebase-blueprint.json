@@ -1,0 +1,246 @@
+{
+  "entities": {
+    "SitePublicConfig": {
+      "title": "SitePublicConfig",
+      "description": "Public site configuration, brand assets, editable page copy, navigation menus, SEO metadata, and payout links.",
+      "type": "object",
+      "properties": {
+        "siteNameEn": { "type": "string", "maxLength": 200 },
+        "taglineEn": { "type": "string", "maxLength": 300 },
+        "seoMetaDescription": { "type": "string", "maxLength": 500 },
+        "canonicalUrl": { "type": "string", "maxLength": 500 },
+        "logoUrl": { "type": "string", "maxLength": 300000 },
+        "heroBgImage": { "type": "string", "maxLength": 300000 },
+        "avatarImage": { "type": "string", "maxLength": 300000 },
+        "aboutImage": { "type": "string", "maxLength": 300000 },
+        "tipsFeatureImage1": { "type": "string", "maxLength": 300000 },
+        "tipsFeatureImage2": { "type": "string", "maxLength": 300000 },
+        "tipsFeatureImage3": { "type": "string", "maxLength": 300000 },
+        "conciergeImage": { "type": "string", "maxLength": 300000 },
+        "showreelEmbedLink": { "type": "string", "maxLength": 1000 },
+        "showreelTitle": { "type": "string", "maxLength": 300 },
+        "showreelThumbnail": { "type": "string", "maxLength": 300000 },
+        "currencySymbol": { "type": "string", "maxLength": 10 },
+        "vipMonthlyPrice": { "type": "number" },
+        "blackDiamondPrice": { "type": "number" },
+        "paypalMeUrl": { "type": "string", "maxLength": 500 },
+        "stripeMonthlyLink": { "type": "string", "maxLength": 500 },
+        "stripeQuarterlyLink": { "type": "string", "maxLength": 500 },
+        "cryptoWalletAddress": { "type": "string", "maxLength": 300 },
+        "cryptoNetwork": { "type": "string", "maxLength": 100 },
+        "instagramUrl": { "type": "string", "maxLength": 500 },
+        "twitterUrl": { "type": "string", "maxLength": 500 },
+        "youtubeUrl": { "type": "string", "maxLength": 500 },
+        "customHeadHtml": { "type": "string", "maxLength": 20000 },
+        "customAdSlotHtml": { "type": "string", "maxLength": 20000 },
+        "headerMenuItems": { "type": "array" },
+        "footerMenuItems": { "type": "array" },
+        "categories": { "type": "array" },
+        "frontTexts": { "type": "object" },
+        "updatedAt": { "type": "string", "maxLength": 100 }
+      },
+      "required": ["siteNameEn", "taglineEn", "frontTexts", "updatedAt"]
+    },
+    "SiteAdminSecrets": {
+      "title": "SiteAdminSecrets",
+      "description": "Restricted admin passcode and private payout contact information.",
+      "type": "object",
+      "properties": {
+        "adminPasscode": { "type": "string", "maxLength": 100 },
+        "contactEmail": { "type": "string", "maxLength": 200 },
+        "contactPhone": { "type": "string", "maxLength": 100 },
+        "paypalEmail": { "type": "string", "maxLength": 200 },
+        "stripeAccountLabel": { "type": "string", "maxLength": 200 },
+        "updatedAt": { "type": "string", "maxLength": 100 }
+      },
+      "required": ["adminPasscode", "updatedAt"]
+    },
+    "VideoItem": {
+      "title": "VideoItem",
+      "description": "Vault video reel or multi-photo boudoir gallery album.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "brandName": { "type": "string", "maxLength": 200 },
+        "category": { "type": "string", "maxLength": 100 },
+        "type": { "type": "string", "enum": ["video", "gallery"] },
+        "titleEn": { "type": "string", "maxLength": 300 },
+        "titleBn": { "type": "string", "maxLength": 300 },
+        "descriptionEn": { "type": "string", "maxLength": 3000 },
+        "descriptionBn": { "type": "string", "maxLength": 3000 },
+        "embedLink": { "type": "string", "maxLength": 2000 },
+        "thumbnailUrl": { "type": "string", "maxLength": 300000 },
+        "galleryImages": { "type": "array" },
+        "duration": { "type": "string", "maxLength": 60 },
+        "viewsCount": { "type": "string", "maxLength": 60 },
+        "status": { "type": "string", "enum": ["Published", "Draft"] },
+        "featuredOnHome": { "type": "boolean" },
+        "isPrivateVIP": { "type": "boolean" },
+        "isShareToUnlock": { "type": "boolean" },
+        "seoTitle": { "type": "string", "maxLength": 300 },
+        "seoDescription": { "type": "string", "maxLength": 500 },
+        "seoKeywords": { "type": "string", "maxLength": 500 },
+        "sortOrder": { "type": "number" }
+      },
+      "required": ["id", "titleEn", "type", "category", "status"]
+    },
+    "BlogPost": {
+      "title": "BlogPost",
+      "description": "Journal blog article with SEO metadata and access controls.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "titleEn": { "type": "string", "maxLength": 300 },
+        "titleBn": { "type": "string", "maxLength": 300 },
+        "slug": { "type": "string", "maxLength": 200 },
+        "category": { "type": "string", "maxLength": 100 },
+        "subtitle": { "type": "string", "maxLength": 1000 },
+        "bannerImage": { "type": "string", "maxLength": 300000 },
+        "optionalVideoLink": { "type": "string", "maxLength": 2000 },
+        "content": { "type": "string", "maxLength": 250000 },
+        "showInHeader": { "type": "boolean" },
+        "showInFooter": { "type": "boolean" },
+        "featuredOnHome": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["published", "draft"] },
+        "date": { "type": "string", "maxLength": 80 },
+        "readTime": { "type": "string", "maxLength": 50 },
+        "isPrivateVIP": { "type": "boolean" },
+        "isShareToUnlock": { "type": "boolean" },
+        "likes": { "type": "number" },
+        "seoTitle": { "type": "string", "maxLength": 300 },
+        "seoDescription": { "type": "string", "maxLength": 500 },
+        "seoKeywords": { "type": "string", "maxLength": 500 },
+        "sortOrder": { "type": "number" }
+      },
+      "required": ["id", "titleEn", "slug", "category", "content", "status"]
+    },
+    "TipItem": {
+      "title": "TipItem",
+      "description": "Feminine style, luxury dining, skincare, or 18+ intimacy masterclass tip.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 300 },
+        "category": { "type": "string", "maxLength": 100 },
+        "isAdult18": { "type": "boolean" },
+        "image": { "type": "string", "maxLength": 300000 },
+        "content": { "type": "string", "maxLength": 200000 },
+        "readTime": { "type": "string", "maxLength": 50 },
+        "date": { "type": "string", "maxLength": 80 },
+        "status": { "type": "string", "enum": ["published", "draft"] },
+        "featuredOnHome": { "type": "boolean" },
+        "isPrivateVIP": { "type": "boolean" },
+        "isShareToUnlock": { "type": "boolean" },
+        "likes": { "type": "number" },
+        "seoTitle": { "type": "string", "maxLength": 300 },
+        "seoDescription": { "type": "string", "maxLength": 500 },
+        "seoKeywords": { "type": "string", "maxLength": 500 },
+        "sortOrder": { "type": "number" }
+      },
+      "required": ["id", "title", "category", "content", "status"]
+    },
+    "ExtraPageItem": {
+      "title": "ExtraPageItem",
+      "description": "Rich text custom or core standalone page with slug routing.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "titleEn": { "type": "string", "maxLength": 300 },
+        "titleBn": { "type": "string", "maxLength": 300 },
+        "slug": { "type": "string", "maxLength": 200 },
+        "bannerImage": { "type": "string", "maxLength": 300000 },
+        "content": { "type": "string", "maxLength": 250000 },
+        "showInHeader": { "type": "boolean" },
+        "showInFooter": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["published", "draft"] },
+        "lastUpdated": { "type": "string", "maxLength": 80 },
+        "seoTitle": { "type": "string", "maxLength": 300 },
+        "seoDescription": { "type": "string", "maxLength": 500 },
+        "seoKeywords": { "type": "string", "maxLength": 500 },
+        "sortOrder": { "type": "number" }
+      },
+      "required": ["id", "titleEn", "slug", "content", "status"]
+    },
+    "PublicComment": {
+      "title": "PublicComment",
+      "description": "Publicly readable approved article comment without PII email.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "postId": { "type": "string", "maxLength": 128 },
+        "postTitle": { "type": "string", "maxLength": 300 },
+        "authorName": { "type": "string", "maxLength": 120 },
+        "commentText": { "type": "string", "maxLength": 2000 },
+        "createdAt": { "type": "string", "maxLength": 80 },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] }
+      },
+      "required": ["id", "postId", "authorName", "commentText", "status"]
+    },
+    "MemberRecord": {
+      "title": "MemberRecord",
+      "description": "Private VIP member subscription record (admin-only read).",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 150 },
+        "email": { "type": "string", "maxLength": 200 },
+        "tier": { "type": "string", "enum": ["VIP Member", "Black Diamond VIP", "Free"] },
+        "status": { "type": "string", "enum": ["active", "cancelled", "pending"] },
+        "joinedDate": { "type": "string", "maxLength": 80 },
+        "paymentMethod": { "type": "string", "maxLength": 120 },
+        "amountPaid": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["id", "name", "email", "tier", "status"]
+    },
+    "NewsletterSubscriber": {
+      "title": "NewsletterSubscriber",
+      "description": "Email subscriber for footer newsletter dispatches (admin-only reads for PII protection).",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 200 },
+        "subscribedAt": { "type": "string", "maxLength": 80 },
+        "source": { "type": "string", "maxLength": 60 }
+      },
+      "required": ["id", "email", "subscribedAt", "source"]
+    }
+  },
+  "firestore": {
+    "/site_public/{docId}": {
+      "schema": { "$ref": "#/entities/SitePublicConfig" },
+      "description": "Stores the authoritative public site configuration document (docId='config')."
+    },
+    "/site_admin/{docId}": {
+      "schema": { "$ref": "#/entities/SiteAdminSecrets" },
+      "description": "Stores restricted admin secrets (docId='secrets')."
+    },
+    "/site_videos/{videoId}": {
+      "schema": { "$ref": "#/entities/VideoItem" },
+      "description": "Collection of VIP vault videos and photo gallery albums."
+    },
+    "/site_blogs/{blogId}": {
+      "schema": { "$ref": "#/entities/BlogPost" },
+      "description": "Collection of journal blog articles."
+    },
+    "/site_tips/{tipId}": {
+      "schema": { "$ref": "#/entities/TipItem" },
+      "description": "Collection of curated tips and masterclasses."
+    },
+    "/site_pages/{pageId}": {
+      "schema": { "$ref": "#/entities/ExtraPageItem" },
+      "description": "Collection of unified rich-text extra and core pages."
+    },
+    "/site_comments/{commentId}": {
+      "schema": { "$ref": "#/entities/PublicComment" },
+      "description": "Collection of reader comments (email PII excluded from public doc)."
+    },
+    "/site_members/{memberId}": {
+      "schema": { "$ref": "#/entities/MemberRecord" },
+      "description": "Collection of VIP subscribers (admin-only reads for PII protection)."
+    },
+    "/newsletter_subscribers/{subscriberId}": {
+      "schema": { "$ref": "#/entities/NewsletterSubscriber" },
+      "description": "Collection of newsletter email signups from the site footer (admin-only reads)."
+    }
+  }
+}

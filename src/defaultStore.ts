@@ -51,8 +51,28 @@ export const LEGACY_ASSET_MAP: Record<string, string> = {
 };
 
 export function resolveAssetUrl(url: string | undefined, fallback: string = heroPortraitImg): string {
-  if (!url) return fallback;
-  return LEGACY_ASSET_MAP[url] || url;
+  const trimmed = (url || '').trim();
+  if (!trimmed) return fallback;
+  if (LEGACY_ASSET_MAP[trimmed]) return LEGACY_ASSET_MAP[trimmed];
+
+  // Convert GitHub blob URLs -> raw.githubusercontent.com direct image URLs
+  const ghBlobMatch = trimmed.match(/^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/blob\/(.+)$/i);
+  if (ghBlobMatch) {
+    const [, owner, repo, rest] = ghBlobMatch;
+    return `https://raw.githubusercontent.com/${owner}/${repo}/${rest}`;
+  }
+
+  // Convert Google Drive file links -> direct embeddable view URL
+  const driveFileMatch = trimmed.match(/^https?:\/\/drive\.google\.com\/file\/d\/([^/]+)\//i);
+  if (driveFileMatch) {
+    return `https://drive.google.com/uc?export=view&id=${driveFileMatch[1]}`;
+  }
+  const driveOpenMatch = trimmed.match(/^https?:\/\/drive\.google\.com\/open\?id=([^&]+)/i);
+  if (driveOpenMatch) {
+    return `https://drive.google.com/uc?export=view&id=${driveOpenMatch[1]}`;
+  }
+
+  return trimmed;
 }
 
 export const PRESET_THUMBNAILS = [

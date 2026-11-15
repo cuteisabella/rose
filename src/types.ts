@@ -3,6 +3,20 @@ export interface UserSubscription {
   status: 'active' | 'inactive';
   expiresAt?: string;
   memberSince?: string;
+  memberName?: string;
+  memberEmail?: string;
+}
+
+export interface LikedContentEntry {
+  id: string;
+  type: 'blog' | 'tip';
+  likedAt: string;
+}
+
+export interface ViewedContentEntry {
+  id: string;
+  type: 'blog' | 'tip';
+  viewedAt: string;
 }
 
 export interface Post {

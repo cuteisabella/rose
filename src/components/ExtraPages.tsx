@@ -20,6 +20,8 @@ import {
 import { UserSubscription, ExtraPageItem, SiteSettings, FrontEditableTexts } from '../types';
 import { ISABELLA_AVATAR_IMG, ISABELLA_HERO_IMG, resolveAssetUrl } from '../defaultStore';
 import { renderRichMarkdown } from '../utils/markdown';
+import { compressImageFileToDataUrl } from '../utils/imageUpload';
+import { FAQSection } from './FAQSection';
 
 interface ExtraPagesProps {
   activePage: 'about' | 'tips' | 'membership' | 'contact' | 'custom';
@@ -40,6 +42,7 @@ export const ExtraPages: React.FC<ExtraPagesProps> = ({
   activePage,
   customPage,
   pages = [],
+  subscription,
   settings,
   frontTexts,
   isLiveEditorActive = false,
@@ -65,13 +68,9 @@ export const ExtraPages: React.FC<ExtraPagesProps> = ({
   const handleImageFileUpload = (field: keyof SiteSettings, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !onUpdateSettingsImage) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        onUpdateSettingsImage(field, reader.result);
-      }
-    };
-    reader.readAsDataURL(file);
+    compressImageFileToDataUrl(file, (dataUrl) => {
+      onUpdateSettingsImage(field, dataUrl);
+    });
   };
 
   return (
@@ -79,28 +78,39 @@ export const ExtraPages: React.FC<ExtraPagesProps> = ({
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* CUSTOM ADMIN EXTRA PAGE (Pure English + Rich Text + Banner + Inline Images) */}
         {activePage === 'custom' && customPage && (
-          <div className="max-w-3xl mx-auto bg-[#161021]/90 border border-[#e5b36b]/30 rounded-3xl overflow-hidden gorgeous-card-glow">
-            {customPage.bannerImage && (
-              <div className="aspect-16/7 w-full overflow-hidden border-b border-white/10 bg-black">
-                <img
-                  src={resolveAssetUrl(customPage.bannerImage)}
-                  alt={customPage.titleEn}
-                  className="w-full h-full object-cover"
-                />
-              </div>
-            )}
-            <div className="p-8 md:p-10 space-y-6">
-              <div className="flex items-center gap-2 text-xs text-[#e5b36b] uppercase tracking-widest font-semibold">
-                <FileText className="w-4 h-4" />
-                <span>Featured Page · Updated {customPage.lastUpdated}</span>
-              </div>
-              <h1 className="text-3xl md:text-5xl font-serif-display font-bold text-white tracking-tight">
-                {customPage.titleEn}
-              </h1>
-              <div className="border-t border-white/10 pt-6 space-y-4 text-sm md:text-base text-stone-200 leading-relaxed">
-                {renderRichMarkdown(customPage.content)}
+          <div className="space-y-10">
+            <div className="max-w-3xl mx-auto bg-[#161021]/90 border border-[#e5b36b]/30 rounded-3xl overflow-hidden gorgeous-card-glow">
+              {customPage.bannerImage && (
+                <div className="aspect-16/7 w-full overflow-hidden border-b border-white/10 bg-black">
+                  <img
+                    src={resolveAssetUrl(customPage.bannerImage)}
+                    alt={customPage.titleEn}
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+              )}
+              <div className="p-8 md:p-10 space-y-6">
+                <div className="flex items-center gap-2 text-xs text-[#e5b36b] uppercase tracking-widest font-semibold">
+                  <FileText className="w-4 h-4" />
+                  <span>Featured Page · Updated {customPage.lastUpdated}</span>
+                </div>
+                <h1 className="text-3xl md:text-5xl font-serif-display font-bold text-white tracking-tight">
+                  {customPage.titleEn}
+                </h1>
+                <div className="border-t border-white/10 pt-6 space-y-4 text-sm md:text-base text-stone-200 leading-relaxed">
+                  {renderRichMarkdown(customPage.content)}
+                </div>
               </div>
             </div>
+
+            {(customPage.slug.includes('membership') || subscription.tier !== 'Free') && (
+              <FAQSection
+                subscription={subscription}
+                vipMonthlyPrice={vipMonthlyPrice}
+                blackDiamondPrice={blackDiamondPrice}
+                onOpenVIPModal={onOpenVIPModal}
+              />
+            )}
           </div>
         )}
 
@@ -132,7 +142,7 @@ export const ExtraPages: React.FC<ExtraPagesProps> = ({
             <div className="grid grid-cols-1 md:grid-cols-12 gap-8 items-start bg-[#161021]/90 p-6 md:p-10 rounded-3xl border border-[#e5b36b]/25 gorgeous-card-glow">
               <div className="md:col-span-5 relative">
                 <img
-                  src={resolveAssetUrl(aboutPageData?.bannerImage || settings?.aboutImage, ISABELLA_AVATAR_IMG)}
+                  src={resolveAssetUrl(settings?.aboutImage || aboutPageData?.bannerImage, ISABELLA_AVATAR_IMG)}
                   alt="Isabella Rose portrait"
                   className="w-full aspect-square object-cover rounded-2xl border border-[#e5b36b]/40 shadow-2xl"
                 />
@@ -393,6 +403,13 @@ export const ExtraPages: React.FC<ExtraPagesProps> = ({
                 </div>
               </div>
             </div>
+
+            <FAQSection
+              subscription={subscription}
+              vipMonthlyPrice={vipMonthlyPrice}
+              blackDiamondPrice={blackDiamondPrice}
+              onOpenVIPModal={onOpenVIPModal}
+            />
           </div>
         )}
 
@@ -439,7 +456,7 @@ export const ExtraPages: React.FC<ExtraPagesProps> = ({
               <div className="lg:col-span-5 space-y-5">
                 <div className="rounded-3xl overflow-hidden border border-[#e5b36b]/30 bg-[#161021] gorgeous-card-glow">
                   <img
-                    src={resolveAssetUrl(conciergePageData?.bannerImage || settings?.conciergeImage, ISABELLA_HERO_IMG)}
+                    src={resolveAssetUrl(settings?.conciergeImage || conciergePageData?.bannerImage, ISABELLA_HERO_IMG)}
                     alt="Isabella Rose Concierge"
                     className="w-full h-52 object-cover"
                   />

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   Sparkles, 
   Lock, 
@@ -26,6 +26,7 @@ import {
 } from '../defaultStore';
 import { renderRichMarkdown, stripMarkdownPreview } from '../utils/markdown';
 import { ShareUnlockGatePanel } from './ShareUnlockModal';
+import { compressImageFileToDataUrl } from '../utils/imageUpload';
 
 interface TipsSectionProps {
   tips: TipItem[];
@@ -39,7 +40,10 @@ interface TipsSectionProps {
   onOpenVIPModal: () => void;
   onVerifiedShareUnlock: (tipId: string) => void;
   onLikeTip?: (tipId: string) => void;
+  onViewTip?: (tipId: string) => void;
   unlockedShareIds: string[];
+  initialTipId?: string | null;
+  onConsumeInitialTip?: () => void;
 }
 
 export const TipsSection: React.FC<TipsSectionProps> = ({
@@ -54,13 +58,25 @@ export const TipsSection: React.FC<TipsSectionProps> = ({
   onOpenVIPModal,
   onVerifiedShareUnlock,
   onLikeTip,
-  unlockedShareIds
+  onViewTip,
+  unlockedShareIds,
+  initialTipId,
+  onConsumeInitialTip
 }) => {
   const [selectedFilter, setSelectedFilter] = useState<string>('All');
   const [selectedTip, setSelectedTip] = useState<TipItem | null>(null);
   const [copiedTip, setCopiedTip] = useState(false);
   const [isMonographExpanded, setIsMonographExpanded] = useState(false);
   const [isMonographModalOpen, setIsMonographModalOpen] = useState(false);
+
+  useEffect(() => {
+    if (!initialTipId) return;
+    const matched = tips.find((t) => t.id === initialTipId);
+    if (matched) {
+      setSelectedTip(matched);
+    }
+    onConsumeInitialTip?.();
+  }, [initialTipId, onConsumeInitialTip, tips]);
 
   const categories = [
     'All',
@@ -86,16 +102,18 @@ export const TipsSection: React.FC<TipsSectionProps> = ({
     ? (activeTip.isPrivateVIP || Boolean(activeTip.isShareToUnlock)) && !isVipUnlocked && !activeTipShareUnlocked
     : false;
 
+  useEffect(() => {
+    if (activeTip && !activeTipLocked) {
+      onViewTip?.(activeTip.id);
+    }
+  }, [activeTip?.id, activeTipLocked, onViewTip]);
+
   const handleImageFileUpload = (field: keyof SiteSettings, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !onUpdateSettingsImage) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        onUpdateSettingsImage(field, reader.result);
-      }
-    };
-    reader.readAsDataURL(file);
+    compressImageFileToDataUrl(file, (dataUrl) => {
+      onUpdateSettingsImage(field, dataUrl);
+    });
   };
 
   const featureHeadline =

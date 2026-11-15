@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   Plus, 
   Trash2, 
@@ -27,7 +27,9 @@ import {
   ArrowDown,
   Image as ImageIcon,
   Eye,
-  EyeOff
+  EyeOff,
+  Mail,
+  RefreshCw
 } from 'lucide-react';
 import { 
   AppStoreData, 
@@ -49,6 +51,15 @@ import {
   formatTodayDate
 } from '../defaultStore';
 import { renderRichMarkdown } from '../utils/markdown';
+import {
+  compressImageFileToDataUrl,
+  compressImageSource,
+  optimizeLinkedAssetUrl
+} from '../utils/imageUpload';
+import {
+  fetchNewsletterSubscribersSummary,
+  subscribeNewsletterSubscribersCount
+} from '../firebase';
 
 interface KinetivoAdminProps {
   store: AppStoreData;
@@ -56,6 +67,12 @@ interface KinetivoAdminProps {
   onClose: () => void;
   onToggleLiveEditor: () => void;
   isLiveEditorActive: boolean;
+  cloudUserEmail?: string | null;
+  cloudSyncStatus?: 'idle' | 'syncing' | 'synced' | 'local-only' | 'error';
+  cloudSyncError?: string | null;
+  onConnectCloudSync?: () => Promise<void>;
+  onDisconnectCloudSync?: () => Promise<void>;
+  onSaveToCloud?: (overrideStore?: AppStoreData) => Promise<boolean>;
 }
 
 export const KinetivoAdmin: React.FC<KinetivoAdminProps> = ({
@@ -63,7 +80,13 @@ export const KinetivoAdmin: React.FC<KinetivoAdminProps> = ({
   onUpdateStore,
   onClose,
   onToggleLiveEditor,
-  isLiveEditorActive
+  isLiveEditorActive,
+  cloudUserEmail,
+  cloudSyncStatus = 'local-only',
+  cloudSyncError,
+  onConnectCloudSync,
+  onDisconnectCloudSync,
+  onSaveToCloud
 }) => {
   const [activeTab, setActiveTab] = useState<'videos' | 'blogs' | 'tips' | 'pages' | 'showreel' | 'comments' | 'members' | 'settings'>('videos');
 
@@ -98,6 +121,62 @@ export const KinetivoAdmin: React.FC<KinetivoAdminProps> = ({
 
   // Explicit Save Settings state
   const [lastSavedLabel, setLastSavedLabel] = useState<string | null>(null);
+  const [isOptimizingBanner, setIsOptimizingBanner] = useState(false);
+
+  // Email Subscribers Count (Firestore newsletter_subscribers)
+  const [subscriberCount, setSubscriberCount] = useState<number | null>(null);
+  const [latestSubscriberAt, setLatestSubscriberAt] = useState<string | null>(null);
+  const [subscriberLoading, setSubscriberLoading] = useState(false);
+  const [subscriberError, setSubscriberError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!cloudUserEmail) {
+      setSubscriberCount(null);
+      setLatestSubscriberAt(null);
+      setSubscriberError(null);
+      setSubscriberLoading(false);
+      return;
+    }
+
+    let isActive = true;
+    setSubscriberLoading(true);
+    setSubscriberError(null);
+
+    const unsubscribe = subscribeNewsletterSubscribersCount(
+      (summary) => {
+        if (!isActive) return;
+        setSubscriberCount(summary.count);
+        setLatestSubscriberAt(summary.latestSubscribedAt || null);
+        setSubscriberError(null);
+        setSubscriberLoading(false);
+      },
+      () => {
+        if (!isActive) return;
+        setSubscriberError('Unable to load subscriber count right now.');
+        setSubscriberLoading(false);
+      }
+    );
+
+    return () => {
+      isActive = false;
+      unsubscribe();
+    };
+  }, [cloudUserEmail]);
+
+  const handleRefreshSubscribers = async () => {
+    if (!cloudUserEmail) return;
+    setSubscriberLoading(true);
+    setSubscriberError(null);
+    try {
+      const summary = await fetchNewsletterSubscribersSummary();
+      setSubscriberCount(summary.count);
+      setLatestSubscriberAt(summary.latestSubscribedAt || null);
+    } catch {
+      setSubscriberError('Unable to refresh subscriber count.');
+    } finally {
+      setSubscriberLoading(false);
+    }
+  };
 
   // Inline Admin Notice (replaces blocked window.alert)
   const [adminNotice, setAdminNotice] = useState<string | null>(null);
@@ -106,15 +185,26 @@ export const KinetivoAdmin: React.FC<KinetivoAdminProps> = ({
     setTimeout(() => setAdminNotice(null), 4000);
   };
 
-  const handleExplicitSaveSettings = () => {
+  const handleExplicitSaveSettings = async () => {
     try {
       localStorage.setItem('isabella_store_data', JSON.stringify(store));
     } catch {
-      // ignore storage quota errors
+      notifyAdmin('⚠️ Browser local cache full — compressing images or using Cloud Sync is recommended.');
     }
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    setLastSavedLabel(`Saved at ${timeStr}`);
-    notifyAdmin('✨ All Settings, Menus, SEO Tags & Changes Saved & Published!');
+    if (onSaveToCloud && cloudUserEmail) {
+      const ok = await onSaveToCloud(store);
+      if (ok) {
+        setLastSavedLabel(`Synced to Cloud at ${timeStr}`);
+        notifyAdmin('✨ Saved & Synced to Cloud! All browsers & devices now show these updates.');
+      } else {
+        setLastSavedLabel(`Local save at ${timeStr} (Cloud retry needed)`);
+        notifyAdmin('⚠️ Saved locally, but Cloud Sync failed. Check your authorized admin email.');
+      }
+    } else {
+      setLastSavedLabel(`Saved on this browser (${timeStr})`);
+      notifyAdmin('Saved locally! Connect Google Cloud Sync in the top bar to persist across other browsers.');
+    }
   };
 
   // Menu Management Helpers (Header / Footer)
@@ -147,21 +237,49 @@ export const KinetivoAdmin: React.FC<KinetivoAdminProps> = ({
   };
 
   // Save Video
-  const handleSaveVideo = (e: React.FormEvent) => {
+  const handleSaveVideo = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingVideo) return;
+    if (!editingVideo || isOptimizingBanner) return;
 
-    onUpdateStore(prev => {
-      const exists = prev.videos.some(v => v.id === editingVideo.id);
-      const updatedVideos = exists
-        ? prev.videos.map(v => v.id === editingVideo.id ? editingVideo : v)
-        : [editingVideo, ...prev.videos];
-      return { ...prev, videos: updatedVideos };
-    });
+    setIsOptimizingBanner(true);
+    try {
+      const optimizedThumb = await compressImageSource(editingVideo.thumbnailUrl, {
+        maxDimension: 1120,
+        quality: 0.78,
+        maxChars: 95_000
+      });
+      const optimizedGallery = Array.isArray(editingVideo.galleryImages)
+        ? await Promise.all(
+            editingVideo.galleryImages.map((img) =>
+              compressImageSource(img, {
+                maxDimension: 1120,
+                quality: 0.76,
+                maxChars: 85_000
+              })
+            )
+          )
+        : editingVideo.galleryImages;
 
-    setIsVideoModalOpen(false);
-    setEditingVideo(null);
-    notifyAdmin('Media item saved!');
+      const finalVideo: VideoItem = {
+        ...editingVideo,
+        thumbnailUrl: optimizedThumb,
+        galleryImages: optimizedGallery
+      };
+
+      onUpdateStore(prev => {
+        const exists = prev.videos.some(v => v.id === finalVideo.id);
+        const updatedVideos = exists
+          ? prev.videos.map(v => v.id === finalVideo.id ? finalVideo : v)
+          : [finalVideo, ...prev.videos];
+        return { ...prev, videos: updatedVideos };
+      });
+
+      setIsVideoModalOpen(false);
+      setEditingVideo(null);
+      notifyAdmin('Media item optimized & saved!');
+    } finally {
+      setIsOptimizingBanner(false);
+    }
   };
 
   const handleToggleVideoStatus = (id: string) => {
@@ -191,21 +309,36 @@ export const KinetivoAdmin: React.FC<KinetivoAdminProps> = ({
   };
 
   // Save Blog
-  const handleSaveBlog = (e: React.FormEvent) => {
+  const handleSaveBlog = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingBlog) return;
+    if (!editingBlog || isOptimizingBanner) return;
 
-    onUpdateStore(prev => {
-      const exists = prev.blogs.some(b => b.id === editingBlog.id);
-      const updatedBlogs = exists
-        ? prev.blogs.map(b => b.id === editingBlog.id ? editingBlog : b)
-        : [editingBlog, ...prev.blogs];
-      return { ...prev, blogs: updatedBlogs };
-    });
+    setIsOptimizingBanner(true);
+    try {
+      const optimizedBanner = await compressImageSource(editingBlog.bannerImage, {
+        maxDimension: 1280,
+        quality: 0.78,
+        maxChars: 105_000
+      });
+      const finalBlog: BlogPost = {
+        ...editingBlog,
+        bannerImage: optimizedBanner
+      };
 
-    setIsBlogModalOpen(false);
-    setEditingBlog(null);
-    notifyAdmin('Blog post saved!');
+      onUpdateStore(prev => {
+        const exists = prev.blogs.some(b => b.id === finalBlog.id);
+        const updatedBlogs = exists
+          ? prev.blogs.map(b => b.id === finalBlog.id ? finalBlog : b)
+          : [finalBlog, ...prev.blogs];
+        return { ...prev, blogs: updatedBlogs };
+      });
+
+      setIsBlogModalOpen(false);
+      setEditingBlog(null);
+      notifyAdmin('Blog post & banner optimized and saved!');
+    } finally {
+      setIsOptimizingBanner(false);
+    }
   };
 
   const handleToggleBlogStatus = (id: string) => {
@@ -235,21 +368,36 @@ export const KinetivoAdmin: React.FC<KinetivoAdminProps> = ({
   };
 
   // Save Tip
-  const handleSaveTip = (e: React.FormEvent) => {
+  const handleSaveTip = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingTip) return;
+    if (!editingTip || isOptimizingBanner) return;
 
-    onUpdateStore(prev => {
-      const exists = prev.tips.some(t => t.id === editingTip.id);
-      const updatedTips = exists
-        ? prev.tips.map(t => t.id === editingTip.id ? editingTip : t)
-        : [editingTip, ...prev.tips];
-      return { ...prev, tips: updatedTips };
-    });
+    setIsOptimizingBanner(true);
+    try {
+      const optimizedImage = await compressImageSource(editingTip.image, {
+        maxDimension: 1120,
+        quality: 0.78,
+        maxChars: 95_000
+      });
+      const finalTip: TipItem = {
+        ...editingTip,
+        image: optimizedImage
+      };
 
-    setIsTipModalOpen(false);
-    setEditingTip(null);
-    notifyAdmin('Masterclass tip saved!');
+      onUpdateStore(prev => {
+        const exists = prev.tips.some(t => t.id === finalTip.id);
+        const updatedTips = exists
+          ? prev.tips.map(t => t.id === finalTip.id ? finalTip : t)
+          : [finalTip, ...prev.tips];
+        return { ...prev, tips: updatedTips };
+      });
+
+      setIsTipModalOpen(false);
+      setEditingTip(null);
+      notifyAdmin('Masterclass tip & photo optimized and saved!');
+    } finally {
+      setIsOptimizingBanner(false);
+    }
   };
 
   const handleToggleTipStatus = (id: string) => {
@@ -278,16 +426,12 @@ export const KinetivoAdmin: React.FC<KinetivoAdminProps> = ({
     notifyAdmin('Tip removed.');
   };
 
-  // Helper: Read local file as Data URL for easy image replacement
+  // Helper: Compress and read local image file as Data URL for reliable persistence
   const readLocalImageFile = (file: File, onLoaded: (dataUrl: string) => void) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        onLoaded(reader.result);
-        notifyAdmin('Image uploaded from device successfully!');
-      }
-    };
-    reader.readAsDataURL(file);
+    compressImageFileToDataUrl(file, (dataUrl) => {
+      onLoaded(dataUrl);
+      notifyAdmin('Image compressed & uploaded successfully!');
+    });
   };
 
   // Helper: Word counter
@@ -313,22 +457,47 @@ export const KinetivoAdmin: React.FC<KinetivoAdminProps> = ({
     notifyAdmin('✨ Auto-Published 10 Daily SEO Blog Articles (850+ words each across categories)!');
   };
 
-  // Save Page
-  const handleSavePage = (e: React.FormEvent) => {
+  // Save Page (with automatic banner image optimization)
+  const handleSavePage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingPage) return;
+    if (!editingPage || isOptimizingBanner) return;
 
-    onUpdateStore(prev => {
-      const exists = prev.pages.some(p => p.id === editingPage.id);
-      const updatedPages = exists
-        ? prev.pages.map(p => p.id === editingPage.id ? editingPage : p)
-        : [editingPage, ...prev.pages];
-      return { ...prev, pages: updatedPages };
-    });
+    setIsOptimizingBanner(true);
+    try {
+      const optimizedBanner = editingPage.bannerImage
+        ? await compressImageSource(editingPage.bannerImage, {
+            maxDimension: 1280,
+            quality: 0.78,
+            maxChars: 105_000
+          })
+        : '';
 
-    setIsPageModalOpen(false);
-    setEditingPage(null);
-    notifyAdmin('Page saved cleanly!');
+      const finalPage: ExtraPageItem = {
+        ...editingPage,
+        bannerImage: optimizedBanner
+      };
+
+      onUpdateStore(prev => {
+        const exists = prev.pages.some(p => p.id === finalPage.id);
+        const updatedPages = exists
+          ? prev.pages.map(p => p.id === finalPage.id ? finalPage : p)
+          : [finalPage, ...prev.pages];
+        const nextSettings = { ...prev.settings };
+        if ((finalPage.id === 'page-about' || finalPage.slug === 'about') && finalPage.bannerImage) {
+          nextSettings.aboutImage = finalPage.bannerImage;
+        }
+        if ((finalPage.id === 'page-concierge' || finalPage.slug === 'concierge') && finalPage.bannerImage) {
+          nextSettings.conciergeImage = finalPage.bannerImage;
+        }
+        return { ...prev, settings: nextSettings, pages: updatedPages };
+      });
+
+      setIsPageModalOpen(false);
+      setEditingPage(null);
+      notifyAdmin('Page & banner optimized and saved cleanly!');
+    } finally {
+      setIsOptimizingBanner(false);
+    }
   };
 
   const handleTogglePageStatus = (id: string) => {
@@ -557,14 +726,48 @@ jobs:
           </span>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5 flex-wrap justify-end">
+          {/* Cloud Sync Status & 1-Click Connect */}
+          {cloudUserEmail ? (
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-950/70 border border-emerald-500/40 text-emerald-300 text-[11px] font-medium">
+              <span className={`w-2 h-2 rounded-full ${cloudSyncStatus === 'syncing' ? 'bg-amber-400 animate-ping' : 'bg-emerald-400'}`} />
+              <span>
+                {cloudSyncStatus === 'syncing'
+                  ? 'Syncing to Cloud...'
+                  : `Cloud Synced (${cloudUserEmail.split('@')[0]})`}
+              </span>
+              {onDisconnectCloudSync && (
+                <button
+                  type="button"
+                  onClick={onDisconnectCloudSync}
+                  className="ml-1 text-[10px] text-stone-400 hover:text-white underline"
+                  title="Sign out Google Cloud Sync"
+                >
+                  Disconnect
+                </button>
+              )}
+            </div>
+          ) : (
+            onConnectCloudSync && (
+              <button
+                type="button"
+                onClick={onConnectCloudSync}
+                className="px-3.5 py-1.5 rounded-lg text-xs font-bold bg-amber-500 hover:bg-amber-400 text-stone-950 flex items-center gap-1.5 transition-all shadow-md"
+                title={cloudSyncError || 'Connect Google Account to sync edits across all browsers and devices'}
+              >
+                <Globe className="w-3.5 h-3.5" />
+                <span>Connect Cloud Sync (Cross-Browser)</span>
+              </button>
+            )
+          )}
+
           {/* Live Front Text Editor Toggle */}
           <button
             onClick={onToggleLiveEditor}
             className={`px-3.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all ${isLiveEditorActive ? 'bg-amber-500 text-black font-bold shadow-lg' : 'bg-[#181520] hover:bg-[#201c2c] text-amber-300 border border-amber-500/30'}`}
           >
             <Sparkles className="w-3.5 h-3.5" />
-            <span>{isLiveEditorActive ? 'Live Editor Active (Click Texts & Photos)' : 'Live Page & Photo Editor'}</span>
+            <span>{isLiveEditorActive ? 'Live Editor Active' : 'Live Page & Photo Editor'}</span>
           </button>
 
           {/* View Site */}
@@ -700,6 +903,86 @@ jobs:
 
         {/* Content Viewport */}
         <main className="flex-1 overflow-y-auto p-6 md:p-8 bg-[#09080c]">
+          {/* Overview Metrics Strip — includes Email Subscribers Count widget */}
+          <div className="mb-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="md:col-span-2 rounded-2xl bg-[#110f17] border border-stone-800 px-5 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-4 min-w-0">
+                <div className="w-11 h-11 rounded-xl bg-[#c99757]/12 border border-[#c99757]/30 flex items-center justify-center text-[#e7c792] shrink-0">
+                  <Mail className="w-5 h-5" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-[11px] font-medium text-stone-400">
+                    Email Subscribers Count
+                  </div>
+                  <div className="flex items-baseline gap-2.5 mt-0.5">
+                    <span className="text-2xl font-bold text-white tracking-tight tabular-nums">
+                      {!cloudUserEmail
+                        ? '—'
+                        : subscriberLoading && subscriberCount === null
+                          ? '...'
+                          : (subscriberCount ?? 0).toLocaleString()}
+                    </span>
+                    <span className="text-xs text-stone-400">
+                      {cloudUserEmail
+                        ? subscriberError
+                          ? subscriberError
+                          : latestSubscriberAt
+                            ? `Footer dispatches · Latest ${new Date(latestSubscriberAt).toLocaleDateString()}`
+                            : 'Collected from footer signup form'
+                        : 'Connect Cloud Sync to view live footer signups'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                {cloudUserEmail ? (
+                  <button
+                    type="button"
+                    onClick={handleRefreshSubscribers}
+                    disabled={subscriberLoading}
+                    className="px-3.5 py-2 rounded-xl bg-stone-900 hover:bg-stone-800 border border-stone-700 text-xs font-medium text-stone-200 inline-flex items-center gap-1.5 transition-colors disabled:opacity-60 whitespace-nowrap shrink-0"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${subscriberLoading ? 'animate-spin' : ''}`} />
+                    <span>{subscriberLoading ? 'Refreshing' : 'Refresh'}</span>
+                  </button>
+                ) : (
+                  onConnectCloudSync && (
+                    <button
+                      type="button"
+                      onClick={onConnectCloudSync}
+                      className="px-3.5 py-2 rounded-xl bg-[#c99757] hover:bg-[#d6a567] text-stone-950 text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+                    >
+                      <Globe className="w-3.5 h-3.5" />
+                      <span>Connect Sync</span>
+                    </button>
+                  )
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-2xl bg-[#110f17] border border-stone-800 px-5 py-4 flex items-center justify-between gap-4">
+              <div>
+                <div className="text-[11px] font-medium text-stone-400">
+                  VIP Members
+                </div>
+                <div className="text-2xl font-bold text-white tracking-tight tabular-nums mt-0.5">
+                  {store.members.length.toLocaleString()}
+                </div>
+                <div className="text-xs text-stone-400 mt-0.5">
+                  Active patron records
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveTab('members')}
+                className="px-3 py-1.5 rounded-lg bg-stone-900 hover:bg-stone-800 border border-stone-700 text-xs font-medium text-stone-300 transition-colors whitespace-nowrap shrink-0"
+              >
+                View List
+              </button>
+            </div>
+          </div>
+
           {/* TAB 1: VIDEOS & ADS MANAGEMENT */}
           {activeTab === 'videos' && (
             <div className="space-y-6">
@@ -1382,13 +1665,19 @@ jobs:
                               type="file"
                               accept="image/*"
                               className="hidden"
-                              onChange={(e) => {
+                                onChange={(e) => {
                                 const file = e.target.files?.[0];
                                 if (!file) return;
                                 readLocalImageFile(file, (dataUrl) => {
                                   onUpdateStore(prev => ({
                                     ...prev,
-                                    settings: { ...prev.settings, [key]: dataUrl }
+                                    settings: { ...prev.settings, [key]: dataUrl },
+                                    pages: prev.pages.map(p =>
+                                      (key === 'aboutImage' && p.slug === 'about') ||
+                                      (key === 'conciergeImage' && p.slug === 'concierge')
+                                        ? { ...p, bannerImage: dataUrl }
+                                        : p
+                                    )
                                   }));
                                 });
                               }}
@@ -1411,10 +1700,41 @@ jobs:
                             type="text"
                             value={currentVal}
                             placeholder="Paste image URL or upload file..."
-                            onChange={(e) => onUpdateStore(prev => ({
-                              ...prev,
-                              settings: { ...prev.settings, [key]: e.target.value }
-                            }))}
+                            onChange={(e) => {
+                              const nextVal = optimizeLinkedAssetUrl(e.target.value);
+                              onUpdateStore(prev => ({
+                                ...prev,
+                                settings: { ...prev.settings, [key]: nextVal },
+                                pages: prev.pages.map(p =>
+                                  (key === 'aboutImage' && (p.id === 'page-about' || p.slug === 'about')) ||
+                                  (key === 'conciergeImage' && (p.id === 'page-concierge' || p.slug === 'concierge'))
+                                    ? { ...p, bannerImage: nextVal }
+                                    : p
+                                )
+                              }));
+                            }}
+                            onBlur={(e) => {
+                              const rawVal = e.target.value.trim();
+                              if (!rawVal) return;
+                              compressImageSource(rawVal, {
+                                maxDimension: 1120,
+                                quality: 0.78,
+                                maxChars: 95_000
+                              }).then((optimized) => {
+                                if (!optimized || optimized === rawVal) return;
+                                onUpdateStore(prev => ({
+                                  ...prev,
+                                  settings: { ...prev.settings, [key]: optimized },
+                                  pages: prev.pages.map(p =>
+                                    (key === 'aboutImage' && (p.id === 'page-about' || p.slug === 'about')) ||
+                                    (key === 'conciergeImage' && (p.id === 'page-concierge' || p.slug === 'concierge'))
+                                      ? { ...p, bannerImage: optimized }
+                                      : p
+                                  )
+                                }));
+                                notifyAdmin(`${label} compressed & optimized!`);
+                              });
+                            }}
                             className="flex-1 bg-[#120f1a] border border-stone-700 rounded-lg px-2.5 py-1.5 text-[11px] text-white font-mono focus:outline-none focus:border-[#c99757]"
                           />
                         </div>
@@ -2026,19 +2346,68 @@ jobs:
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-medium text-stone-300 mb-1">
-                    Hero Section Background Image URL
-                  </label>
-                  <input
-                    type="text"
-                    value={store.settings.heroBgImage}
-                    onChange={(e) => onUpdateStore(prev => ({
-                      ...prev,
-                      settings: { ...prev.settings, heroBgImage: e.target.value }
-                    }))}
-                    className="w-full bg-[#09080d] border border-stone-700 rounded-lg px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-[#c99757]"
-                  />
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-medium text-stone-300">
+                      Hero Section Showcase / Background Image URL
+                    </label>
+                    <label className="px-2.5 py-1 rounded-lg bg-[#c99757]/20 hover:bg-[#c99757]/30 border border-[#c99757]/40 text-[#f6e2bb] text-[10px] font-semibold cursor-pointer inline-flex items-center gap-1">
+                      <Upload className="w-3 h-3" /> Upload Image
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          readLocalImageFile(file, (dataUrl) => {
+                            onUpdateStore(prev => ({
+                              ...prev,
+                              settings: { ...prev.settings, heroBgImage: dataUrl }
+                            }));
+                          });
+                        }}
+                      />
+                    </label>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {store.settings.heroBgImage && (
+                      <img
+                        src={resolveAssetUrl(store.settings.heroBgImage)}
+                        alt="Hero Preview"
+                        className="w-14 h-12 rounded-lg object-cover border border-stone-700 shrink-0"
+                      />
+                    )}
+                    <input
+                      type="text"
+                      value={store.settings.heroBgImage}
+                      onChange={(e) => {
+                        const nextVal = optimizeLinkedAssetUrl(e.target.value);
+                        onUpdateStore(prev => ({
+                          ...prev,
+                          settings: { ...prev.settings, heroBgImage: nextVal }
+                        }));
+                      }}
+                      onBlur={(e) => {
+                        const rawVal = e.target.value.trim();
+                        if (!rawVal) return;
+                        compressImageSource(rawVal, {
+                          maxDimension: 1120,
+                          quality: 0.78,
+                          maxChars: 95_000
+                        }).then((optimized) => {
+                          if (!optimized || optimized === rawVal) return;
+                          onUpdateStore(prev => ({
+                            ...prev,
+                            settings: { ...prev.settings, heroBgImage: optimized }
+                          }));
+                          notifyAdmin('Hero Showcase Image compressed & optimized!');
+                        });
+                      }}
+                      placeholder="Paste direct image URL (or GitHub / Drive link)..."
+                      className="flex-1 bg-[#09080d] border border-stone-700 rounded-lg px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-[#c99757]"
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -2356,7 +2725,18 @@ jobs:
                 <input
                   type="text"
                   value={editingVideo.thumbnailUrl}
-                  onChange={(e) => setEditingVideo({ ...editingVideo, thumbnailUrl: e.target.value })}
+                  onChange={(e) => setEditingVideo({ ...editingVideo, thumbnailUrl: optimizeLinkedAssetUrl(e.target.value) })}
+                  onBlur={(e) => {
+                    const rawVal = e.target.value.trim();
+                    if (!rawVal) return;
+                    compressImageSource(rawVal, { maxDimension: 1120, quality: 0.78, maxChars: 95_000 }).then((optimized) => {
+                      if (optimized && optimized !== rawVal) {
+                        setEditingVideo((prev) =>
+                          prev && prev.thumbnailUrl.trim() === rawVal ? { ...prev, thumbnailUrl: optimized } : prev
+                        );
+                      }
+                    });
+                  }}
                   className="w-full bg-[#09080d] border border-stone-700 rounded-lg p-2 text-white font-mono mb-2"
                 />
                 <div className="flex gap-2 overflow-x-auto pb-1">
@@ -2595,7 +2975,18 @@ jobs:
                 <input
                   type="text"
                   value={editingBlog.bannerImage}
-                  onChange={(e) => setEditingBlog({ ...editingBlog, bannerImage: e.target.value })}
+                  onChange={(e) => setEditingBlog({ ...editingBlog, bannerImage: optimizeLinkedAssetUrl(e.target.value) })}
+                  onBlur={(e) => {
+                    const rawVal = e.target.value.trim();
+                    if (!rawVal) return;
+                    compressImageSource(rawVal, { maxDimension: 1280, quality: 0.78, maxChars: 105_000 }).then((optimized) => {
+                      if (optimized && optimized !== rawVal) {
+                        setEditingBlog((prev) =>
+                          prev && prev.bannerImage.trim() === rawVal ? { ...prev, bannerImage: optimized } : prev
+                        );
+                      }
+                    });
+                  }}
                   className="w-full bg-[#09080d] border border-stone-700 rounded-lg p-2 text-white font-mono mb-2"
                 />
                 <div className="flex gap-2 overflow-x-auto pb-1">
@@ -2871,7 +3262,18 @@ jobs:
                 <input
                   type="text"
                   value={editingTip.image}
-                  onChange={(e) => setEditingTip({ ...editingTip, image: e.target.value })}
+                  onChange={(e) => setEditingTip({ ...editingTip, image: optimizeLinkedAssetUrl(e.target.value) })}
+                  onBlur={(e) => {
+                    const rawVal = e.target.value.trim();
+                    if (!rawVal) return;
+                    compressImageSource(rawVal, { maxDimension: 1120, quality: 0.78, maxChars: 95_000 }).then((optimized) => {
+                      if (optimized && optimized !== rawVal) {
+                        setEditingTip((prev) =>
+                          prev && prev.image.trim() === rawVal ? { ...prev, image: optimized } : prev
+                        );
+                      }
+                    });
+                  }}
                   className="w-full bg-[#09080d] border border-stone-700 rounded-lg p-2 text-white font-mono mb-2"
                 />
                 <div className="flex gap-2 overflow-x-auto pb-1">
@@ -3125,13 +3527,40 @@ jobs:
                     />
                   </label>
                 </div>
-                <input
-                  type="text"
-                  value={editingPage.bannerImage || ''}
-                  onChange={(e) => setEditingPage({ ...editingPage, bannerImage: e.target.value })}
-                  placeholder="Optional banner image URL..."
-                  className="w-full bg-[#09080d] border border-stone-700 rounded-lg p-2 text-white font-mono mb-2"
-                />
+                <div className="flex items-center gap-3 mb-2">
+                  {editingPage.bannerImage && (
+                    <img
+                      src={resolveAssetUrl(editingPage.bannerImage)}
+                      alt="Banner preview"
+                      className="w-16 h-11 rounded-lg object-cover border border-stone-700 shrink-0"
+                    />
+                  )}
+                  <input
+                    type="text"
+                    value={editingPage.bannerImage || ''}
+                    onChange={(e) => setEditingPage({ ...editingPage, bannerImage: optimizeLinkedAssetUrl(e.target.value) })}
+                    onBlur={(e) => {
+                      const rawVal = e.target.value.trim();
+                      if (!rawVal) return;
+                      compressImageSource(rawVal, {
+                        maxDimension: 1280,
+                        quality: 0.78,
+                        maxChars: 105_000
+                      }).then((optimized) => {
+                        if (optimized && optimized !== rawVal) {
+                          setEditingPage((prev) =>
+                            prev && (prev.bannerImage || '').trim() === rawVal
+                              ? { ...prev, bannerImage: optimized }
+                              : prev
+                          );
+                          notifyAdmin('Page banner asset compressed & optimized!');
+                        }
+                      });
+                    }}
+                    placeholder="Optional banner image URL..."
+                    className="flex-1 bg-[#09080d] border border-stone-700 rounded-lg p-2 text-white font-mono"
+                  />
+                </div>
                 <div className="flex gap-2 overflow-x-auto pb-1">
                   {PRESET_THUMBNAILS.map((img, i) => (
                     <img
@@ -3282,9 +3711,10 @@ jobs:
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-lg bg-[#c99757] hover:bg-[#d6a567] text-stone-950 font-semibold"
+                  disabled={isOptimizingBanner}
+                  className="px-5 py-2 rounded-lg bg-[#c99757] hover:bg-[#d6a567] disabled:opacity-60 text-stone-950 font-semibold"
                 >
-                  Save Page
+                  {isOptimizingBanner ? 'Optimizing Banner...' : 'Save Page'}
                 </button>
               </div>
             </form>

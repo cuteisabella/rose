@@ -19,17 +19,24 @@ import {
   AppStoreData,
   BlogPost,
   ExtraPageItem,
+  LikedContentEntry,
+  ViewedContentEntry,
   UserSubscription,
   MemberItem,
   FrontEditableTexts,
   SiteSettings,
-  NavMenuItem
+  NavMenuItem,
+  TipItem,
+  VideoItem
 } from './types';
 import { Hero } from './components/Hero';
 import { BlogSection } from './components/BlogSection';
 import { MediaVault } from './components/MediaVault';
 import { TipsSection } from './components/TipsSection';
 import { ExtraPages } from './components/ExtraPages';
+import { MyProfile } from './components/MyProfile';
+import { NewsletterSignup } from './components/NewsletterSignup';
+import { SiteSearch } from './components/SiteSearch';
 import { AuthModal } from './components/AuthModal';
 import { CheckoutModal } from './components/CheckoutModal';
 import { AdminLoginModal } from './components/AdminLoginModal';
@@ -37,8 +44,24 @@ import { KinetivoAdmin } from './components/KinetivoAdmin';
 import { PostDetailModal } from './components/PostDetailModal';
 import { ShareUnlockModal, ShareGateTarget } from './components/ShareUnlockModal';
 import { stripMarkdownPreview } from './utils/markdown';
+import { compressImageSource, optimizeLinkedAssetUrl } from './utils/imageUpload';
+import { onAuthStateChanged } from 'firebase/auth';
+import {
+  auth,
+  AUTHORIZED_ADMIN_EMAIL,
+  CloudSyncCallbacks,
+  isAuthorizedAdminUser,
+  pullCloudStoreFromServer,
+  saveCloudStore,
+  signInAdminWithGoogle,
+  signOutAdminGoogle,
+  submitPublicCommentToCloud,
+  submitPublicMemberToCloud,
+  subscribeCloudStore,
+  testFirestoreConnection
+} from './firebase';
 
-type ActiveTab = 'home' | 'blog' | 'vault' | 'about' | 'tips' | 'membership' | 'contact' | 'custom';
+type ActiveTab = 'home' | 'blog' | 'vault' | 'about' | 'tips' | 'membership' | 'contact' | 'profile' | 'custom';
 
 const BENGALI_CHAR_REGEX = /[\u0980-\u09FF]/;
 
@@ -49,7 +72,8 @@ const TAB_TO_PATH: Record<Exclude<ActiveTab, 'custom'>, string> = {
   vault: '/vault',
   membership: '/membership',
   about: '/about',
-  contact: '/concierge'
+  contact: '/concierge',
+  profile: '/profile'
 };
 
 function sanitizeEnglishText(value: string | undefined, fallback: string = ''): string {
@@ -91,9 +115,18 @@ function deduplicateFooterMenu(items: NavMenuItem[]): NavMenuItem[] {
   });
 }
 
-function hydrateStore(raw: unknown): AppStoreData {
+function hydrateStore(raw: unknown, options?: { fromCloud?: boolean }): AppStoreData {
   if (!raw || typeof raw !== 'object') return DEFAULT_STORE_DATA;
+  const fromCloud = Boolean(options?.fromCloud);
   const data = raw as Partial<AppStoreData>;
+
+  const rawTipsFeatureArticle = data.frontTexts?.tipsFeatureArticle;
+  const hydratedTipsFeatureArticle =
+    !rawTipsFeatureArticle || BENGALI_CHAR_REGEX.test(rawTipsFeatureArticle)
+      ? DEFAULT_STORE_DATA.frontTexts.tipsFeatureArticle
+      : !fromCloud && rawTipsFeatureArticle.length < 200
+        ? DEFAULT_STORE_DATA.frontTexts.tipsFeatureArticle
+        : rawTipsFeatureArticle;
 
   const hydratedFrontTexts: FrontEditableTexts = {
     heroKicker: sanitizeEnglishText(data.frontTexts?.heroKicker, DEFAULT_STORE_DATA.frontTexts.heroKicker),
@@ -107,10 +140,7 @@ function hydrateStore(raw: unknown): AppStoreData {
     tipsSectionTitle: sanitizeEnglishText(data.frontTexts?.tipsSectionTitle, DEFAULT_STORE_DATA.frontTexts.tipsSectionTitle),
     tipsSectionSubtitle: sanitizeEnglishText(data.frontTexts?.tipsSectionSubtitle, DEFAULT_STORE_DATA.frontTexts.tipsSectionSubtitle),
     tipsFeatureHeadline: sanitizeEnglishText(data.frontTexts?.tipsFeatureHeadline, DEFAULT_STORE_DATA.frontTexts.tipsFeatureHeadline),
-    tipsFeatureArticle:
-      !data.frontTexts?.tipsFeatureArticle || data.frontTexts.tipsFeatureArticle.length < 3000 || BENGALI_CHAR_REGEX.test(data.frontTexts.tipsFeatureArticle)
-        ? DEFAULT_STORE_DATA.frontTexts.tipsFeatureArticle
-        : data.frontTexts.tipsFeatureArticle,
+    tipsFeatureArticle: hydratedTipsFeatureArticle,
     aboutHeadline: sanitizeEnglishText(data.frontTexts?.aboutHeadline, DEFAULT_STORE_DATA.frontTexts.aboutHeadline),
     aboutBio: sanitizeEnglishText(data.frontTexts?.aboutBio, DEFAULT_STORE_DATA.frontTexts.aboutBio),
     conciergeHeadline: sanitizeEnglishText(data.frontTexts?.conciergeHeadline, DEFAULT_STORE_DATA.frontTexts.conciergeHeadline),
@@ -124,22 +154,26 @@ function hydrateStore(raw: unknown): AppStoreData {
   const defaultTipsById = new Map(DEFAULT_STORE_DATA.tips.map((t) => [t.id, t]));
   const defaultPagesById = new Map(DEFAULT_STORE_DATA.pages.map((p) => [p.id, p]));
 
-  const cachedPagesRaw: ExtraPageItem[] = Array.isArray(data.pages)
+  const rawPagesList = Array.isArray(data.pages)
     ? data.pages
         .filter((p) => p.id !== 'page-1' && p.slug !== 'about-isabella')
         .map((p) => {
           const defaultSeed = defaultPagesById.get(p.id);
-          if (p.id === 'page-2' && defaultSeed && (!p.content || p.content.length < 400 || !p.content.includes('##'))) {
+          if (!fromCloud && p.id === 'page-2' && defaultSeed && (!p.content || p.content.length < 400 || !p.content.includes('##'))) {
             return { ...defaultSeed };
           }
           return {
             ...p,
             titleBn: '',
-            status: p.status === 'draft' ? 'draft' : 'published',
-            bannerImage: p.bannerImage ? resolveAssetUrl(p.bannerImage) : defaultSeed?.bannerImage
+            status: (p.status === 'draft' ? 'draft' : 'published') as 'published' | 'draft',
+            bannerImage: p.bannerImage
+              ? optimizeLinkedAssetUrl(p.bannerImage)
+              : fromCloud
+                ? ''
+                : defaultSeed?.bannerImage || ''
           };
         })
-    : [];
+    : null;
 
   const seenPageIds = new Set<string>();
   const seenPageSlugs = new Set<string>();
@@ -158,8 +192,14 @@ function hydrateStore(raw: unknown): AppStoreData {
     mergedPages.push(page);
   };
 
-  cachedPagesRaw.forEach(pushUniquePage);
-  DEFAULT_STORE_DATA.pages.forEach(pushUniquePage);
+  if (rawPagesList) {
+    rawPagesList.forEach(pushUniquePage);
+    if (!fromCloud) {
+      DEFAULT_STORE_DATA.pages.forEach(pushUniquePage);
+    }
+  } else {
+    DEFAULT_STORE_DATA.pages.forEach(pushUniquePage);
+  }
 
   const rawHeaderMenu = Array.isArray(data.settings?.headerMenuItems) && data.settings!.headerMenuItems.length > 0
     ? data.settings!.headerMenuItems
@@ -169,6 +209,104 @@ function hydrateStore(raw: unknown): AppStoreData {
     ? deduplicateFooterMenu(data.settings!.footerMenuItems)
     : DEFAULT_FOOTER_MENU;
 
+  const resolvedAboutPage = mergedPages.find((p) => p.id === 'page-about' || p.slug === 'about');
+  const resolvedConciergePage = mergedPages.find((p) => p.id === 'page-concierge' || p.slug === 'concierge');
+
+  const resolvedLogoUrl =
+    data.settings?.logoUrl === ''
+      ? ''
+      : optimizeLinkedAssetUrl(data.settings?.logoUrl || DEFAULT_STORE_DATA.settings.logoUrl);
+
+  const resolvedHeroBgImage =
+    data.settings?.heroBgImage === ''
+      ? ''
+      : optimizeLinkedAssetUrl(data.settings?.heroBgImage || DEFAULT_STORE_DATA.settings.heroBgImage);
+
+  const resolvedAvatarImage =
+    data.settings?.avatarImage === ''
+      ? ''
+      : optimizeLinkedAssetUrl(data.settings?.avatarImage || DEFAULT_STORE_DATA.settings.avatarImage);
+
+  const resolvedAboutImage =
+    data.settings?.aboutImage === ''
+      ? resolvedAboutPage?.bannerImage || ''
+      : optimizeLinkedAssetUrl(
+          data.settings?.aboutImage || resolvedAboutPage?.bannerImage || DEFAULT_STORE_DATA.settings.aboutImage
+        );
+
+  const resolvedConciergeImage =
+    data.settings?.conciergeImage === ''
+      ? resolvedConciergePage?.bannerImage || ''
+      : optimizeLinkedAssetUrl(
+          data.settings?.conciergeImage || resolvedConciergePage?.bannerImage || DEFAULT_STORE_DATA.settings.conciergeImage
+        );
+
+  const vipMonthlyPrice =
+    typeof data.settings?.vipMonthlyPrice === 'number' && data.settings.vipMonthlyPrice > 0
+      ? !fromCloud && data.settings.vipMonthlyPrice === 19.99
+        ? DEFAULT_STORE_DATA.settings.vipMonthlyPrice
+        : data.settings.vipMonthlyPrice
+      : DEFAULT_STORE_DATA.settings.vipMonthlyPrice;
+
+  const blackDiamondPrice =
+    typeof data.settings?.blackDiamondPrice === 'number' && data.settings.blackDiamondPrice > 0
+      ? !fromCloud && data.settings.blackDiamondPrice === 49.99
+        ? DEFAULT_STORE_DATA.settings.blackDiamondPrice
+        : data.settings.blackDiamondPrice
+      : DEFAULT_STORE_DATA.settings.blackDiamondPrice;
+
+  const hydratedVideos: VideoItem[] = Array.isArray(data.videos)
+    ? data.videos.length > 0 || fromCloud
+      ? data.videos.map((v) => ({
+          ...v,
+          type: v.type === 'gallery' ? 'gallery' : 'video',
+          status: v.status === 'Draft' ? 'Draft' : 'Published',
+          titleBn: '',
+          thumbnailUrl: optimizeLinkedAssetUrl(v.thumbnailUrl),
+          galleryImages: Array.isArray(v.galleryImages)
+            ? v.galleryImages.map((img) => optimizeLinkedAssetUrl(img)).filter(Boolean)
+            : undefined,
+          featuredOnHome: v.featuredOnHome ?? true,
+        }))
+      : DEFAULT_STORE_DATA.videos
+    : DEFAULT_STORE_DATA.videos;
+
+  const hydratedBlogs: BlogPost[] = Array.isArray(data.blogs)
+    ? data.blogs.length > 0 || fromCloud
+      ? data.blogs.map((b) => {
+          const freshSeed = defaultBlogsById.get(b.id);
+          if (!fromCloud && freshSeed && (!b.content || b.content.length < 1800)) {
+            return { ...freshSeed, likes: b.likes || freshSeed.likes };
+          }
+          return {
+            ...b,
+            titleBn: '',
+            status: b.status === 'draft' ? 'draft' : 'published',
+            date: sanitizeNaturalDate(b.date, freshSeed?.date || formatTodayDate()),
+            bannerImage: optimizeLinkedAssetUrl(b.bannerImage),
+            featuredOnHome: b.featuredOnHome ?? true,
+          };
+        })
+      : DEFAULT_STORE_DATA.blogs
+    : DEFAULT_STORE_DATA.blogs;
+
+  const hydratedTips: TipItem[] = Array.isArray(data.tips)
+    ? data.tips.length > 0 || fromCloud
+      ? data.tips.map((t) => {
+          const freshSeed = defaultTipsById.get(t.id);
+          if (!fromCloud && freshSeed && (!t.content || t.content.length < 1200)) {
+            return { ...freshSeed, likes: t.likes || freshSeed.likes };
+          }
+          return {
+            ...t,
+            status: t.status === 'draft' ? 'draft' : 'published',
+            date: sanitizeNaturalDate(t.date, freshSeed?.date || formatTodayDate()),
+            image: optimizeLinkedAssetUrl(t.image),
+          };
+        })
+      : DEFAULT_STORE_DATA.tips
+    : DEFAULT_STORE_DATA.tips;
+
   return {
     settings: {
       ...DEFAULT_STORE_DATA.settings,
@@ -177,70 +315,27 @@ function hydrateStore(raw: unknown): AppStoreData {
       taglineEn: sanitizeEnglishText(data.settings?.taglineEn, DEFAULT_STORE_DATA.settings.taglineEn),
       seoMetaDescription: sanitizeEnglishText(data.settings?.seoMetaDescription, DEFAULT_STORE_DATA.settings.seoMetaDescription),
       canonicalUrl: data.settings?.canonicalUrl || DEFAULT_STORE_DATA.settings.canonicalUrl,
-      heroBgImage: resolveAssetUrl(data.settings?.heroBgImage, DEFAULT_STORE_DATA.settings.heroBgImage),
-      avatarImage: resolveAssetUrl(data.settings?.avatarImage, DEFAULT_STORE_DATA.settings.avatarImage),
-      aboutImage: resolveAssetUrl(data.settings?.aboutImage, DEFAULT_STORE_DATA.settings.aboutImage),
-      tipsFeatureImage1: resolveAssetUrl(data.settings?.tipsFeatureImage1, DEFAULT_STORE_DATA.settings.tipsFeatureImage1),
-      tipsFeatureImage2: resolveAssetUrl(data.settings?.tipsFeatureImage2, DEFAULT_STORE_DATA.settings.tipsFeatureImage2),
-      tipsFeatureImage3: resolveAssetUrl(data.settings?.tipsFeatureImage3, DEFAULT_STORE_DATA.settings.tipsFeatureImage3),
-      conciergeImage: resolveAssetUrl(data.settings?.conciergeImage, DEFAULT_STORE_DATA.settings.conciergeImage),
-      showreelThumbnail: resolveAssetUrl(data.settings?.showreelThumbnail, DEFAULT_STORE_DATA.settings.showreelThumbnail),
+      logoUrl: resolvedLogoUrl,
+      heroBgImage: resolvedHeroBgImage,
+      avatarImage: resolvedAvatarImage,
+      aboutImage: resolvedAboutImage,
+      tipsFeatureImage1: optimizeLinkedAssetUrl(data.settings?.tipsFeatureImage1 || DEFAULT_STORE_DATA.settings.tipsFeatureImage1),
+      tipsFeatureImage2: optimizeLinkedAssetUrl(data.settings?.tipsFeatureImage2 || DEFAULT_STORE_DATA.settings.tipsFeatureImage2),
+      tipsFeatureImage3: optimizeLinkedAssetUrl(data.settings?.tipsFeatureImage3 || DEFAULT_STORE_DATA.settings.tipsFeatureImage3),
+      conciergeImage: resolvedConciergeImage,
+      showreelThumbnail: optimizeLinkedAssetUrl(data.settings?.showreelThumbnail || DEFAULT_STORE_DATA.settings.showreelThumbnail),
       headerMenuItems: rawHeaderMenu,
       footerMenuItems: rawFooterMenu,
       categories: Array.isArray(data.settings?.categories) && data.settings!.categories.length > 0
         ? data.settings!.categories
         : DEFAULT_STORE_DATA.settings.categories,
-      vipMonthlyPrice: data.settings?.vipMonthlyPrice === 19.99 || !data.settings?.vipMonthlyPrice
-        ? DEFAULT_STORE_DATA.settings.vipMonthlyPrice
-        : data.settings.vipMonthlyPrice,
-      blackDiamondPrice: data.settings?.blackDiamondPrice === 49.99 || !data.settings?.blackDiamondPrice
-        ? DEFAULT_STORE_DATA.settings.blackDiamondPrice
-        : data.settings.blackDiamondPrice,
+      vipMonthlyPrice,
+      blackDiamondPrice,
     },
     frontTexts: hydratedFrontTexts,
-    videos: Array.isArray(data.videos) && data.videos.length > 0
-      ? data.videos.map((v) => ({
-          ...v,
-          type: v.type || 'video',
-          status: v.status === 'Draft' ? 'Draft' : 'Published',
-          titleBn: '',
-          thumbnailUrl: resolveAssetUrl(v.thumbnailUrl),
-          galleryImages: Array.isArray(v.galleryImages)
-            ? v.galleryImages.map((img) => resolveAssetUrl(img))
-            : undefined,
-          featuredOnHome: v.featuredOnHome ?? true,
-        }))
-      : DEFAULT_STORE_DATA.videos,
-    blogs: Array.isArray(data.blogs) && data.blogs.length > 0
-      ? data.blogs.map((b) => {
-          const freshSeed = defaultBlogsById.get(b.id);
-          if (freshSeed && (!b.content || b.content.length < 1800)) {
-            return { ...freshSeed, likes: b.likes || freshSeed.likes };
-          }
-          return {
-            ...b,
-            titleBn: '',
-            status: b.status === 'draft' ? 'draft' : 'published',
-            date: sanitizeNaturalDate(b.date, freshSeed?.date || formatTodayDate()),
-            bannerImage: resolveAssetUrl(b.bannerImage),
-            featuredOnHome: b.featuredOnHome ?? true,
-          };
-        })
-      : DEFAULT_STORE_DATA.blogs,
-    tips: Array.isArray(data.tips) && data.tips.length > 0
-      ? data.tips.map((t) => {
-          const freshSeed = defaultTipsById.get(t.id);
-          if (freshSeed && (!t.content || t.content.length < 1200)) {
-            return { ...freshSeed, likes: t.likes || freshSeed.likes };
-          }
-          return {
-            ...t,
-            status: t.status === 'draft' ? 'draft' : 'published',
-            date: sanitizeNaturalDate(t.date, freshSeed?.date || formatTodayDate()),
-            image: resolveAssetUrl(t.image),
-          };
-        })
-      : DEFAULT_STORE_DATA.tips,
+    videos: hydratedVideos,
+    blogs: hydratedBlogs,
+    tips: hydratedTips,
     pages: mergedPages,
     comments: Array.isArray(data.comments) ? data.comments : DEFAULT_STORE_DATA.comments,
     members: Array.isArray(data.members) ? data.members : DEFAULT_STORE_DATA.members,
@@ -273,6 +368,9 @@ function resolveRouteFromPathname(
   }
   if (cleanPath === '/concierge' || cleanPath === '/contact' || cleanPath === '/page/concierge') {
     return { tab: 'contact', extraPage: null, blogPost: null };
+  }
+  if (cleanPath === '/profile') {
+    return { tab: 'profile', extraPage: null, blogPost: null };
   }
 
   if (cleanPath.startsWith('/blog/')) {
@@ -448,6 +546,22 @@ function AppContent() {
   const [isLiveEditorActive, setIsLiveEditorActive] = useState(false);
   const [hasUnsavedFrontEdits, setHasUnsavedFrontEdits] = useState(false);
 
+  // Firebase Cloud Sync State (Cross-Browser Persistence)
+  const [cloudUserEmail, setCloudUserEmail] = useState<string | null>(null);
+  const [cloudIsAdmin, setCloudIsAdmin] = useState(false);
+  const [cloudSyncStatus, setCloudSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'local-only' | 'error'>('local-only');
+  const [cloudSyncError, setCloudSyncError] = useState<string | null>(null);
+  const [hasCloudConfig, setHasCloudConfig] = useState(false);
+
+  const storeRef = React.useRef(store);
+  storeRef.current = store;
+  const hasCloudConfigRef = React.useRef(false);
+  const isApplyingCloudSnapshotRef = React.useRef(false);
+  const hasLocalAdminEditsRef = React.useRef(false);
+  const cloudSaveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const settingsImageOptTimersRef = React.useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const settingsImageOptTokensRef = React.useRef<Record<string, number>>({});
+
   // Modals & Social Share Gate
   const [isVIPModalOpen, setIsVIPModalOpen] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
@@ -479,6 +593,63 @@ function AppContent() {
     }
     return [];
   });
+
+  // Recently Liked Content History (Stored in localStorage)
+  const [likedItems, setLikedItems] = useState<LikedContentEntry[]>(() => {
+    const saved = localStorage.getItem('isabella_liked_content');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        /* ignore */
+      }
+    }
+    return [];
+  });
+  const [pendingTipId, setPendingTipId] = useState<string | null>(null);
+
+  // Reading Activity: Viewed Content History (Stored in localStorage)
+  const [viewedItems, setViewedItems] = useState<ViewedContentEntry[]>(() => {
+    const saved = localStorage.getItem('isabella_viewed_content');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        /* ignore */
+      }
+    }
+    return [];
+  });
+
+  const recordLikedItem = useCallback((id: string, type: 'blog' | 'tip') => {
+    setLikedItems((prev) => {
+      const next: LikedContentEntry[] = [
+        { id, type, likedAt: formatTodayDate() },
+        ...prev.filter((item) => item.id !== id)
+      ].slice(0, 40);
+      return next;
+    });
+  }, []);
+
+  const recordViewedItem = useCallback((id: string, type: 'blog' | 'tip') => {
+    setViewedItems((prev) => {
+      const next: ViewedContentEntry[] = [
+        { id, type, viewedAt: formatTodayDate() },
+        ...prev.filter((item) => item.id !== id)
+      ].slice(0, 100);
+      return next;
+    });
+  }, []);
+
+  const handleRemoveLikedItem = useCallback((id: string) => {
+    setLikedItems((prev) => prev.filter((item) => item.id !== id));
+  }, []);
+
+  const handleClearLikedItems = useCallback(() => {
+    setLikedItems([]);
+  }, []);
 
   const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
@@ -547,6 +718,13 @@ function AppContent() {
         setActiveTab('contact');
         setSelectedExtraPage(null);
         if (shouldPushUrl) pushPath('/concierge');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        return;
+      }
+      if (target === 'profile' || target === '/profile') {
+        setActiveTab('profile');
+        setSelectedExtraPage(null);
+        if (shouldPushUrl) pushPath('/profile');
         window.scrollTo({ top: 0, behavior: 'smooth' });
         return;
       }
@@ -649,13 +827,280 @@ function AppContent() {
 
   // Save unlocked shares
   useEffect(() => {
-    localStorage.setItem('isabella_unlocked_shares', JSON.stringify(unlockedShareIds));
+    try {
+      localStorage.setItem('isabella_unlocked_shares', JSON.stringify(unlockedShareIds));
+    } catch {
+      /* ignore quota error */
+    }
   }, [unlockedShareIds]);
 
-  // Save Store to localStorage
+  // Save recently liked content history
   useEffect(() => {
-    localStorage.setItem('isabella_store_data', JSON.stringify(store));
+    try {
+      localStorage.setItem('isabella_liked_content', JSON.stringify(likedItems));
+    } catch {
+      /* ignore quota error */
+    }
+  }, [likedItems]);
+
+  // Save viewed content reading activity
+  useEffect(() => {
+    try {
+      localStorage.setItem('isabella_viewed_content', JSON.stringify(viewedItems));
+    } catch {
+      /* ignore quota error */
+    }
+  }, [viewedItems]);
+
+  // Automatically record blog post views when opened (Home, Journal, Search, Direct URL)
+  useEffect(() => {
+    if (selectedBlog?.id) {
+      recordViewedItem(selectedBlog.id, 'blog');
+    }
+  }, [selectedBlog?.id, recordViewedItem]);
+
+  // Save Store to localStorage safely
+  useEffect(() => {
+    try {
+      localStorage.setItem('isabella_store_data', JSON.stringify(store));
+    } catch {
+      /* ignore localStorage quota exceeded; Firestore holds cloud state */
+    }
   }, [store]);
+
+  // Boot Firestore connection test + Auth state listener
+  useEffect(() => {
+    testFirestoreConnection().catch(() => {});
+    const unsub = onAuthStateChanged(auth, (user) => {
+      if (isAuthorizedAdminUser(user)) {
+        setCloudUserEmail(user?.email || AUTHORIZED_ADMIN_EMAIL);
+        setCloudIsAdmin(true);
+        setCloudSyncStatus('synced');
+        setCloudSyncError(null);
+      } else if (user) {
+        setCloudUserEmail(null);
+        setCloudIsAdmin(false);
+        setCloudSyncStatus('error');
+        setCloudSyncError(`Signed in as ${user.email}, but Cloud Admin Sync requires ${AUTHORIZED_ADMIN_EMAIL}.`);
+      } else {
+        setCloudUserEmail(null);
+        setCloudIsAdmin(false);
+        setCloudSyncStatus('local-only');
+        setCloudSyncError(null);
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  const createCloudCallbacks = useCallback((): CloudSyncCallbacks => {
+    const applyCloudUpdate = (updater: (prev: AppStoreData) => AppStoreData) => {
+      isApplyingCloudSnapshotRef.current = true;
+      setStore((prev) => {
+        const next = updater(prev);
+        try {
+          localStorage.setItem('isabella_store_data', JSON.stringify(next));
+        } catch {
+          /* ignore local quota error */
+        }
+        return next;
+      });
+      setTimeout(() => {
+        isApplyingCloudSnapshotRef.current = false;
+      }, 50);
+    };
+
+    return {
+      onCloudState: (exists) => {
+        hasCloudConfigRef.current = exists;
+        setHasCloudConfig(exists);
+      },
+      onConfig: (settingsPatch, frontTextsPatch) => {
+        applyCloudUpdate((prev) => {
+          const nextPages = prev.pages.map((p) => {
+            if ((p.id === 'page-about' || p.slug === 'about') && typeof settingsPatch.aboutImage === 'string') {
+              return { ...p, bannerImage: settingsPatch.aboutImage };
+            }
+            if ((p.id === 'page-concierge' || p.slug === 'concierge') && typeof settingsPatch.conciergeImage === 'string') {
+              return { ...p, bannerImage: settingsPatch.conciergeImage };
+            }
+            return p;
+          });
+          return hydrateStore(
+            {
+              ...prev,
+              settings: { ...prev.settings, ...settingsPatch },
+              frontTexts: frontTextsPatch ? { ...prev.frontTexts, ...frontTextsPatch } : prev.frontTexts,
+              pages: nextPages
+            },
+            { fromCloud: true }
+          );
+        });
+      },
+      onSecrets: (secretsPatch) => {
+        applyCloudUpdate((prev) => ({
+          ...prev,
+          settings: { ...prev.settings, ...secretsPatch }
+        }));
+      },
+      onVideos: (videos) => {
+        applyCloudUpdate((prev) => hydrateStore({ ...prev, videos }, { fromCloud: true }));
+      },
+      onBlogs: (blogs) => {
+        applyCloudUpdate((prev) => hydrateStore({ ...prev, blogs }, { fromCloud: true }));
+      },
+      onTips: (tips) => {
+        applyCloudUpdate((prev) => hydrateStore({ ...prev, tips }, { fromCloud: true }));
+      },
+      onPages: (pages) => {
+        applyCloudUpdate((prev) => {
+          const aboutPage = pages.find((p) => p.id === 'page-about' || p.slug === 'about');
+          const conciergePage = pages.find((p) => p.id === 'page-concierge' || p.slug === 'concierge');
+          const nextSettings = {
+            ...prev.settings,
+            ...(aboutPage?.bannerImage ? { aboutImage: aboutPage.bannerImage } : {}),
+            ...(conciergePage?.bannerImage ? { conciergeImage: conciergePage.bannerImage } : {})
+          };
+          return hydrateStore({ ...prev, settings: nextSettings, pages }, { fromCloud: true });
+        });
+      },
+      onComments: (comments) => {
+        applyCloudUpdate((prev) => ({ ...prev, comments }));
+      },
+      onMembers: (members) => {
+        applyCloudUpdate((prev) => ({ ...prev, members }));
+      },
+      onError: () => {
+        /* keep local fallback silently for non-admin sessions */
+      }
+    };
+  }, []);
+
+  // Subscribe to Real-Time Cloud Store & Pull Server-Fresh Snapshot on Boot
+  useEffect(() => {
+    const callbacks = createCloudCallbacks();
+    pullCloudStoreFromServer(cloudIsAdmin, callbacks).catch(() => {});
+    const unsub = subscribeCloudStore(cloudIsAdmin, callbacks);
+    return () => unsub();
+  }, [cloudIsAdmin, createCloudCallbacks]);
+
+  const handleSaveToCloud = useCallback(
+    async (overrideStore?: AppStoreData): Promise<boolean> => {
+      if (!cloudIsAdmin) return false;
+      if (cloudSaveTimerRef.current) {
+        clearTimeout(cloudSaveTimerRef.current);
+        cloudSaveTimerRef.current = null;
+      }
+      const payload = overrideStore || storeRef.current;
+      try {
+        localStorage.setItem('isabella_store_data', JSON.stringify(payload));
+      } catch {
+        /* ignore quota error */
+      }
+      setCloudSyncStatus('syncing');
+      try {
+        await saveCloudStore(payload);
+        hasLocalAdminEditsRef.current = false;
+        hasCloudConfigRef.current = true;
+        setHasCloudConfig(true);
+        setHasUnsavedFrontEdits(false);
+        setCloudSyncStatus('synced');
+        setCloudSyncError(null);
+        return true;
+      } catch (error) {
+        setCloudSyncStatus('error');
+        setCloudSyncError(error instanceof Error ? error.message : 'Cloud save failed');
+        return false;
+      }
+    },
+    [cloudIsAdmin]
+  );
+
+  const scheduleCloudAutoSave = useCallback(
+    (nextStore: AppStoreData) => {
+      if (!cloudIsAdmin) return;
+      if (cloudSaveTimerRef.current) {
+        clearTimeout(cloudSaveTimerRef.current);
+      }
+      setCloudSyncStatus('syncing');
+      cloudSaveTimerRef.current = setTimeout(() => {
+        cloudSaveTimerRef.current = null;
+        saveCloudStore(nextStore)
+          .then(() => {
+            hasLocalAdminEditsRef.current = false;
+            hasCloudConfigRef.current = true;
+            setHasCloudConfig(true);
+            setHasUnsavedFrontEdits(false);
+            setCloudSyncStatus('synced');
+            setCloudSyncError(null);
+          })
+          .catch((err) => {
+            setCloudSyncStatus('error');
+            setCloudSyncError(err instanceof Error ? err.message : 'Cloud auto-sync failed');
+          });
+      }, 650);
+    },
+    [cloudIsAdmin]
+  );
+
+  // Auto-sync admin edits to Firestore when Cloud Sync is active
+  const handleAdminStoreUpdate = useCallback(
+    (updater: (prev: AppStoreData) => AppStoreData) => {
+      hasLocalAdminEditsRef.current = true;
+      setStore((prev) => {
+        const next = updater(prev);
+        scheduleCloudAutoSave(next);
+        return next;
+      });
+    },
+    [scheduleCloudAutoSave]
+  );
+
+  const handleConnectCloudSync = useCallback(async () => {
+    try {
+      setCloudSyncStatus('syncing');
+      const user = await signInAdminWithGoogle();
+      if (!isAuthorizedAdminUser(user)) {
+        await signOutAdminGoogle().catch(() => {});
+        setCloudSyncStatus('error');
+        showToast(`Please sign in with ${AUTHORIZED_ADMIN_EMAIL} to enable Admin Cloud Sync.`);
+        return;
+      }
+      setCloudUserEmail(user.email || AUTHORIZED_ADMIN_EMAIL);
+      setCloudIsAdmin(true);
+      setCloudSyncError(null);
+
+      // Push pending local admin edits (or initial seed if Cloud DB is empty); otherwise pull fresh server state
+      if (hasLocalAdminEditsRef.current || !hasCloudConfigRef.current) {
+        await saveCloudStore(storeRef.current);
+        hasLocalAdminEditsRef.current = false;
+        hasCloudConfigRef.current = true;
+        setHasCloudConfig(true);
+        setHasUnsavedFrontEdits(false);
+        showToast('Cloud Sync connected & all edits saved across all browsers!');
+      } else {
+        await pullCloudStoreFromServer(true, createCloudCallbacks());
+        showToast('Cloud Sync connected! Live changes now sync across all browsers.');
+      }
+      setCloudSyncStatus('synced');
+    } catch (error) {
+      setCloudSyncStatus('local-only');
+      const msg = error instanceof Error ? error.message : 'Sign-in cancelled';
+      setCloudSyncError(msg);
+      showToast('Google Cloud Sync sign-in did not complete.');
+    }
+  }, [createCloudCallbacks, showToast]);
+
+  const handleDisconnectCloudSync = useCallback(async () => {
+    if (cloudSaveTimerRef.current) {
+      clearTimeout(cloudSaveTimerRef.current);
+      cloudSaveTimerRef.current = null;
+    }
+    await signOutAdminGoogle().catch(() => {});
+    setCloudUserEmail(null);
+    setCloudIsAdmin(false);
+    setCloudSyncStatus('local-only');
+    showToast('Disconnected Google Cloud Sync.');
+  }, [showToast]);
 
   // Save Subscription to localStorage
   useEffect(() => {
@@ -764,6 +1209,10 @@ function AppContent() {
       title = `${store.frontTexts.vaultSectionTitle || '4K VIP Vault'} | ${siteName}`;
       description = store.frontTexts.vaultSectionSubtitle || defaultMetaDesc;
       canonicalPath = '/vault';
+    } else if (activeTab === 'profile') {
+      title = `My Profile | ${siteName}`;
+      description = 'View your active VIP subscription status, membership join date, and recently liked content.';
+      canonicalPath = '/profile';
     }
 
     const fullCanonicalUrl = canonicalPath === '/' ? `${baseCanonical}/` : `${baseCanonical}${canonicalPath}`;
@@ -831,12 +1280,15 @@ function AppContent() {
       tier: newMember.tier,
       status: 'active',
       memberSince: newMember.joinedDate,
+      memberName: newMember.name,
+      memberEmail: newMember.email,
       expiresAt: '2027-11-12'
     });
     setStore((prev) => ({
       ...prev,
       members: [newMember, ...prev.members]
     }));
+    submitPublicMemberToCloud(newMember).catch(() => {});
     setIsCheckoutOpen(false);
     showToast(`Payment Verified! Welcome to ${newMember.tier}. All private content is unlocked.`);
   };
@@ -869,37 +1321,114 @@ function AppContent() {
       ...prev,
       comments: [newComment, ...prev.comments]
     }));
+    submitPublicCommentToCloud(newComment).catch(() => {});
     showToast('Comment submitted for admin review!');
   };
 
   // Live Front Text & Image Editing
   const handleUpdateFrontText = (field: keyof FrontEditableTexts, value: string) => {
-    setStore((prev) => ({
-      ...prev,
-      frontTexts: {
-        ...prev.frontTexts,
-        [field]: value
-      }
-    }));
+    hasLocalAdminEditsRef.current = true;
+    setStore((prev) => {
+      const next: AppStoreData = {
+        ...prev,
+        frontTexts: {
+          ...prev.frontTexts,
+          [field]: value
+        }
+      };
+      scheduleCloudAutoSave(next);
+      return next;
+    });
     setHasUnsavedFrontEdits(true);
   };
+
+  const applySettingsImageValue = useCallback(
+    (field: keyof SiteSettings, assetUrl: string) => {
+      setStore((prev) => {
+        const next: AppStoreData = {
+          ...prev,
+          settings: {
+            ...prev.settings,
+            [field]: assetUrl
+          },
+          pages: prev.pages.map((p) =>
+            (field === 'aboutImage' && (p.id === 'page-about' || p.slug === 'about')) ||
+            (field === 'conciergeImage' && (p.id === 'page-concierge' || p.slug === 'concierge'))
+              ? { ...p, bannerImage: assetUrl }
+              : p
+          )
+        };
+        scheduleCloudAutoSave(next);
+        return next;
+      });
+    },
+    [scheduleCloudAutoSave]
+  );
 
   const handleUpdateSettingsImage = (field: keyof SiteSettings, url: string) => {
-    setStore((prev) => ({
-      ...prev,
-      settings: {
-        ...prev.settings,
-        [field]: url
-      }
-    }));
+    hasLocalAdminEditsRef.current = true;
+    const fieldKey = String(field);
+
+    // Cancel any in-flight optimization or debounce timer for this field
+    if (settingsImageOptTimersRef.current[fieldKey]) {
+      clearTimeout(settingsImageOptTimersRef.current[fieldKey]);
+      delete settingsImageOptTimersRef.current[fieldKey];
+    }
+    const nextToken = (settingsImageOptTokensRef.current[fieldKey] || 0) + 1;
+    settingsImageOptTokensRef.current[fieldKey] = nextToken;
+
+    const normalizedUrl = optimizeLinkedAssetUrl(url);
+    applySettingsImageValue(field, normalizedUrl);
     setHasUnsavedFrontEdits(true);
-    showToast('Photo updated on page! Click "Save Changes" to confirm.');
+
+    const shouldCompress =
+      normalizedUrl.startsWith('data:image/') ||
+      /^https?:\/\/.+\..+/i.test(normalizedUrl) ||
+      normalizedUrl.startsWith('/');
+
+    if (shouldCompress) {
+      const delayMs = normalizedUrl.startsWith('data:image/') ? 0 : 350;
+      settingsImageOptTimersRef.current[fieldKey] = setTimeout(() => {
+        delete settingsImageOptTimersRef.current[fieldKey];
+        compressImageSource(normalizedUrl, {
+          maxDimension: 1120,
+          quality: 0.78,
+          maxChars: 95_000
+        }).then((optimized) => {
+          if (settingsImageOptTokensRef.current[fieldKey] !== nextToken) return;
+          if (optimized && optimized !== normalizedUrl) {
+            applySettingsImageValue(field, optimized);
+          }
+        });
+      }, delayMs);
+    }
+
+    showToast(
+      cloudIsAdmin
+        ? 'Photo optimized & syncing to Cloud across all browsers!'
+        : 'Photo optimized on page! Click "Save Changes" or connect Cloud Sync.'
+    );
   };
 
-  const handleSaveFrontEdits = () => {
-    localStorage.setItem('isabella_store_data', JSON.stringify(store));
-    setHasUnsavedFrontEdits(false);
-    showToast('All page text & photo edits saved successfully!');
+  const handleSaveFrontEdits = async () => {
+    const latestStore = storeRef.current;
+    try {
+      localStorage.setItem('isabella_store_data', JSON.stringify(latestStore));
+    } catch {
+      /* ignore local quota error */
+    }
+    if (cloudIsAdmin) {
+      const ok = await handleSaveToCloud(latestStore);
+      setHasUnsavedFrontEdits(false);
+      showToast(
+        ok
+          ? 'All page text & photo edits saved & synced across all browsers!'
+          : 'Saved locally, but Cloud Sync encountered an error.'
+      );
+    } else {
+      setHasUnsavedFrontEdits(false);
+      showToast('Saved locally! Click "Sync to Cloud" on the bar to apply across other browsers.');
+    }
   };
 
   // Compute Active Header & Footer Navigation Menus
@@ -982,6 +1511,7 @@ function AppContent() {
     if (t === 'membership' || t === '/membership' || t === '/page/membership') return activeTab === 'membership';
     if (t === 'about' || t === '/about' || t === '/page/about') return activeTab === 'about';
     if (t === 'contact' || t === '/concierge' || t === '/contact' || t === '/page/concierge') return activeTab === 'contact';
+    if (t === 'profile' || t === '/profile') return activeTab === 'profile';
     if (t.startsWith('/page/') && activeTab === 'custom' && selectedExtraPage) {
       return t === `/page/${selectedExtraPage.slug}`;
     }
@@ -1000,15 +1530,20 @@ function AppContent() {
     <div className="min-h-screen bg-[#09080b] text-[#f4efe8] flex flex-col selection:bg-[#c99757] selection:text-black">
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 bg-[#171420] border border-[#c99757] text-[#e7c792] rounded-xl shadow-2xl text-xs font-medium">
-          <Sparkles className="w-4 h-4 text-[#c99757]" />
+        <div
+          key={toastMessage}
+          role="status"
+          aria-live="polite"
+          className="animate-toast-enter fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 bg-[#171420] border border-[#c99757] text-[#e7c792] rounded-xl shadow-2xl text-xs font-medium"
+        >
+          <Sparkles className="w-4 h-4 text-[#c99757] shrink-0" />
           <span>{toastMessage}</span>
         </div>
       )}
 
       {/* Floating Toolbar when Live Front Editor is Active */}
       {isLiveEditorActive && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-5 py-3 bg-[#131019]/95 border-2 border-amber-500 rounded-2xl shadow-2xl backdrop-blur-md">
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex flex-wrap items-center justify-center gap-2.5 px-4 py-3 bg-[#131019]/95 border-2 border-amber-500 rounded-2xl shadow-2xl backdrop-blur-md max-w-[95vw]">
           <div className="flex items-center gap-2 text-xs text-amber-300 font-semibold">
             <Sparkles className="w-4 h-4 animate-spin" />
             <span>
@@ -1016,12 +1551,21 @@ function AppContent() {
               {hasUnsavedFrontEdits ? ' (Unsaved Changes)' : ''}
             </span>
           </div>
+          {!cloudIsAdmin && (
+            <button
+              type="button"
+              onClick={handleConnectCloudSync}
+              className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-stone-950 font-bold text-xs transition-colors shadow-md"
+            >
+              Sync to Cloud
+            </button>
+          )}
           <button
             onClick={handleSaveFrontEdits}
             className="px-3.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs flex items-center gap-1.5 transition-colors shadow-md"
           >
             <Save className="w-3.5 h-3.5" />
-            Save Changes
+            {cloudSyncStatus === 'syncing' ? 'Saving...' : 'Save Changes'}
           </button>
           <button
             onClick={() => setIsLiveEditorActive(false)}
@@ -1087,8 +1631,23 @@ function AppContent() {
             })}
           </nav>
 
-          {/* Zone 3: 1 primary action (VIP Access CTA) */}
+          {/* Zone 3: Site Search + Primary Action */}
           <div className="flex items-center gap-3 shrink-0">
+            <div className="hidden md:block">
+              <SiteSearch
+                variant="desktop"
+                blogs={store.blogs}
+                tips={store.tips}
+                pages={store.pages}
+                onSelectBlog={handleOpenBlogPost}
+                onSelectTip={(tip) => {
+                  setPendingTipId(tip.id);
+                  navigateByTarget('tips');
+                }}
+                onSelectTarget={(target) => navigateByTarget(target)}
+              />
+            </div>
+
             <button
               onClick={() => setIsVIPModalOpen(true)}
               className="px-4 py-2 text-xs font-semibold uppercase tracking-wider text-stone-950 bg-gradient-to-r from-[#e7c792] via-[#c99757] to-[#b07f43] rounded-lg hover:opacity-95 transition-all shadow-md flex items-center gap-1.5 whitespace-nowrap shrink-0"
@@ -1110,6 +1669,24 @@ function AppContent() {
         {/* Mobile Navigation Dropdown */}
         {mobileMenuOpen && (
           <div className="md:hidden border-t border-stone-800 bg-[#0d0b10] px-4 py-4 space-y-3 text-xs uppercase tracking-wider">
+            <div className="normal-case tracking-normal pb-2">
+              <SiteSearch
+                variant="mobile"
+                blogs={store.blogs}
+                tips={store.tips}
+                pages={store.pages}
+                onSelectBlog={(blog) => {
+                  setMobileMenuOpen(false);
+                  handleOpenBlogPost(blog);
+                }}
+                onSelectTip={(tip) => {
+                  setMobileMenuOpen(false);
+                  setPendingTipId(tip.id);
+                  navigateByTarget('tips');
+                }}
+                onSelectTarget={(target) => navigateByTarget(target)}
+              />
+            </div>
             {headerNavItems.map((item) => {
               const isExternal = /^https?:\/\//i.test(item.target);
               const showVaultLock = item.target === 'vault' || item.target === '/vault';
@@ -1143,6 +1720,16 @@ function AppContent() {
                 </button>
               );
             })}
+            {subscription.tier !== 'Free' && (
+              <button
+                onClick={() => navigateByTarget('profile')}
+                className={`block w-full text-left py-2 flex items-center gap-1.5 ${
+                  activeTab === 'profile' ? 'text-[#e7c792] font-semibold' : 'text-stone-300 hover:text-white'
+                }`}
+              >
+                <span>My Profile</span>
+              </button>
+            )}
           </div>
         )}
       </header>
@@ -1197,7 +1784,9 @@ function AppContent() {
                   ...prev,
                   tips: prev.tips.map((t) => (t.id === id ? { ...t, likes: t.likes + 1 } : t))
                 }));
+                recordLikedItem(id, 'tip');
               }}
+              onViewTip={(id) => recordViewedItem(id, 'tip')}
               unlockedShareIds={unlockedShareIds}
             />
 
@@ -1217,6 +1806,7 @@ function AppContent() {
                   ...prev,
                   blogs: prev.blogs.map((b) => (b.id === id ? { ...b, likes: b.likes + 1 } : b))
                 }));
+                recordLikedItem(id, 'blog');
               }}
               onAddComment={handleAddComment}
               isLiveEditorActive={isLiveEditorActive}
@@ -1242,6 +1832,7 @@ function AppContent() {
                   ...prev,
                   blogs: prev.blogs.map((b) => (b.id === id ? { ...b, likes: b.likes + 1 } : b))
                 }));
+                recordLikedItem(id, 'blog');
               }}
               onAddComment={handleAddComment}
               isLiveEditorActive={isLiveEditorActive}
@@ -1282,8 +1873,12 @@ function AppContent() {
                   ...prev,
                   tips: prev.tips.map((t) => (t.id === id ? { ...t, likes: t.likes + 1 } : t))
                 }));
+                recordLikedItem(id, 'tip');
               }}
+              onViewTip={(id) => recordViewedItem(id, 'tip')}
               unlockedShareIds={unlockedShareIds}
+              initialTipId={pendingTipId}
+              onConsumeInitialTip={() => setPendingTipId(null)}
             />
           </div>
         )}
@@ -1306,14 +1901,38 @@ function AppContent() {
             />
           </div>
         )}
+
+        {activeTab === 'profile' && (
+          <div className="pt-20">
+            <MyProfile
+              subscription={subscription}
+              likedItems={likedItems}
+              viewedItems={viewedItems}
+              blogs={store.blogs}
+              tips={store.tips}
+              onOpenBlog={handleOpenBlogPost}
+              onOpenTip={(tip) => {
+                setPendingTipId(tip.id);
+                navigateByTarget('tips');
+              }}
+              onRemoveLikedItem={handleRemoveLikedItem}
+              onClearLikedItems={handleClearLikedItems}
+              onOpenVIPModal={() => setIsVIPModalOpen(true)}
+              onSignOut={handleSignOut}
+              onNavigate={(target) => navigateByTarget(target)}
+            />
+          </div>
+        )}
       </main>
 
       {/* OPTIONAL LINKS AD / BANNER HTML SLOT */}
       <HtmlAdSlot html={store.settings.customAdSlotHtml || ''} />
 
-      {/* FOOTER (Editable Navigation + Non-Duplicated Curated Pages + Secret Admin Lock) */}
+      {/* FOOTER (Newsletter Signup + Editable Navigation + Non-Duplicated Curated Pages + Secret Admin Lock) */}
       <footer className="border-t border-stone-800 bg-[#08070a] py-14 text-stone-400 text-xs">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 grid grid-cols-1 md:grid-cols-4 gap-8">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <NewsletterSignup onSuccessToast={showToast} />
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
           <div className="space-y-3">
             <div className="text-lg font-serif-display font-bold text-white">
               {store.settings.siteNameEn.split('—')[0]}
@@ -1353,6 +1972,13 @@ function AppContent() {
                   </li>
                 );
               })}
+              {subscription.tier !== 'Free' && (
+                <li>
+                  <button onClick={() => navigateByTarget('profile')} className="hover:text-white text-left text-[#e7c792]">
+                    My Profile
+                  </button>
+                </li>
+              )}
             </ul>
           </div>
 
@@ -1399,6 +2025,7 @@ function AppContent() {
             </div>
           </div>
         </div>
+        </div>
       </footer>
 
       {/* FLOATING SCROLL BACK TO TOP BUTTON */}
@@ -1426,6 +2053,10 @@ function AppContent() {
         blackDiamondPrice={store.settings.blackDiamondPrice}
         onUpgrade={handleInitiateUpgrade}
         onSignOut={handleSignOut}
+        onOpenProfile={() => {
+          setIsVIPModalOpen(false);
+          navigateByTarget('profile');
+        }}
       />
 
       <CheckoutModal
@@ -1457,7 +2088,7 @@ function AppContent() {
       {isAdminPanelOpen && (
         <KinetivoAdmin
           store={store}
-          onUpdateStore={(updater) => setStore(updater)}
+          onUpdateStore={handleAdminStoreUpdate}
           onClose={() => setIsAdminPanelOpen(false)}
           onToggleLiveEditor={() => {
             setIsLiveEditorActive(!isLiveEditorActive);
@@ -1469,16 +2100,24 @@ function AppContent() {
             );
           }}
           isLiveEditorActive={isLiveEditorActive}
+          cloudUserEmail={cloudUserEmail}
+          cloudSyncStatus={cloudSyncStatus}
+          cloudSyncError={cloudSyncError}
+          onConnectCloudSync={handleConnectCloudSync}
+          onDisconnectCloudSync={handleDisconnectCloudSync}
+          onSaveToCloud={handleSaveToCloud}
         />
       )}
 
       {selectedBlog && (
         <PostDetailModal
           post={selectedBlog}
+          allPosts={publishedBlogs}
           comments={store.comments}
           subscription={subscription}
           unlockedShareIds={unlockedShareIds}
           onClose={handleCloseBlogPost}
+          onSelectPost={handleOpenBlogPost}
           onOpenVIPModal={() => setIsVIPModalOpen(true)}
           onVerifiedShareUnlock={handleVerifiedShareUnlock}
           onLikePost={(id) => {
@@ -1487,6 +2126,7 @@ function AppContent() {
               blogs: prev.blogs.map((b) => (b.id === id ? { ...b, likes: b.likes + 1 } : b))
             }));
             setSelectedBlog((prev) => (prev ? { ...prev, likes: prev.likes + 1 } : null));
+            recordLikedItem(id, 'blog');
           }}
           onAddComment={handleAddComment}
         />

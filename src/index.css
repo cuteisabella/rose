@@ -41,3 +41,24 @@
 .gorgeous-btn-gradient {
   background: linear-gradient(135deg, #f3cf8a 0%, #d49845 50%, #b84b6e 100%);
 }
+
+@keyframes subtleToastEnter {
+  0% {
+    opacity: 0;
+    transform: translateY(6px) scale(0.95);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-toast-enter {
+  animation: subtleToastEnter 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-toast-enter {
+    animation: none;
+  }
+}
