@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { 
   Sparkles, 
   Lock, 
@@ -69,14 +69,20 @@ export const TipsSection: React.FC<TipsSectionProps> = ({
   const [isMonographExpanded, setIsMonographExpanded] = useState(false);
   const [isMonographModalOpen, setIsMonographModalOpen] = useState(false);
 
+  const onViewTipRef = useRef(onViewTip);
+  onViewTipRef.current = onViewTip;
+  const onConsumeInitialTipRef = useRef(onConsumeInitialTip);
+  onConsumeInitialTipRef.current = onConsumeInitialTip;
+  const lastRecordedViewKeyRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (!initialTipId) return;
     const matched = tips.find((t) => t.id === initialTipId);
     if (matched) {
       setSelectedTip(matched);
     }
-    onConsumeInitialTip?.();
-  }, [initialTipId, onConsumeInitialTip, tips]);
+    onConsumeInitialTipRef.current?.();
+  }, [initialTipId, tips]);
 
   const categories = [
     'All',
@@ -104,9 +110,14 @@ export const TipsSection: React.FC<TipsSectionProps> = ({
 
   useEffect(() => {
     if (activeTip && !activeTipLocked) {
-      onViewTip?.(activeTip.id);
+      if (lastRecordedViewKeyRef.current !== activeTip.id) {
+        lastRecordedViewKeyRef.current = activeTip.id;
+        onViewTipRef.current?.(activeTip.id);
+      }
+    } else if (!activeTip) {
+      lastRecordedViewKeyRef.current = null;
     }
-  }, [activeTip?.id, activeTipLocked, onViewTip]);
+  }, [activeTip?.id, activeTipLocked]);
 
   const handleImageFileUpload = (field: keyof SiteSettings, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

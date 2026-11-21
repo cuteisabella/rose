@@ -26,10 +26,15 @@ import {
   ArrowUp,
   ArrowDown,
   Image as ImageIcon,
-  Eye,
-  EyeOff,
   Mail,
-  RefreshCw
+  RefreshCw,
+  Camera,
+  Flame,
+  Copy,
+  BarChart3,
+  CheckCheck,
+  Clock,
+  RotateCcw
 } from 'lucide-react';
 import { 
   AppStoreData, 
@@ -39,8 +44,12 @@ import {
   ExtraPageItem, 
   NavMenuItem,
   SiteSettings,
-  FrontEditableTexts
+  FrontEditableTexts,
+  CustomGalleryPhotoItem,
+  LikedContentEntry,
+  ViewedContentEntry
 } from '../types';
+import { AdminAnalyticsTab } from './AdminAnalyticsTab';
 import {
   PRESET_THUMBNAILS,
   resolveAssetUrl,
@@ -50,6 +59,15 @@ import {
   DEFAULT_FOOTER_MENU,
   formatTodayDate
 } from '../defaultStore';
+import {
+  GALLERY_CATEGORIES,
+  GALLERY_ASSIGNABLE_CATEGORIES,
+  getResolvedGalleryPhotos,
+  GalleryCategory,
+  GalleryPhotoItem,
+  isApprovedAssetUrl,
+  normalizeGalleryCategory
+} from '../galleryData';
 import { renderRichMarkdown } from '../utils/markdown';
 import {
   compressImageFileToDataUrl,
@@ -67,6 +85,9 @@ interface KinetivoAdminProps {
   onClose: () => void;
   onToggleLiveEditor: () => void;
   isLiveEditorActive: boolean;
+  viewedItems?: ViewedContentEntry[];
+  likedItems?: LikedContentEntry[];
+  viewCounts?: Record<string, number>;
   cloudUserEmail?: string | null;
   cloudSyncStatus?: 'idle' | 'syncing' | 'synced' | 'local-only' | 'error';
   cloudSyncError?: string | null;
@@ -81,6 +102,9 @@ export const KinetivoAdmin: React.FC<KinetivoAdminProps> = ({
   onClose,
   onToggleLiveEditor,
   isLiveEditorActive,
+  viewedItems = [],
+  likedItems = [],
+  viewCounts = {},
   cloudUserEmail,
   cloudSyncStatus = 'local-only',
   cloudSyncError,
@@ -88,7 +112,19 @@ export const KinetivoAdmin: React.FC<KinetivoAdminProps> = ({
   onDisconnectCloudSync,
   onSaveToCloud
 }) => {
-  const [activeTab, setActiveTab] = useState<'videos' | 'blogs' | 'tips' | 'pages' | 'showreel' | 'comments' | 'members' | 'settings'>('videos');
+  const [activeTab, setActiveTab] = useState<'videos' | 'blogs' | 'tips' | 'pages' | 'gallery' | 'showreel' | 'comments' | 'analytics' | 'members' | 'settings'>('videos');
+  const [commentStatusFilter, setCommentStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
+  const [commentSearch, setCommentSearch] = useState('');
+  const [commentPostFilter, setCommentPostFilter] = useState<string>('all');
+  const [gallerySearch, setGallerySearch] = useState('');
+  const [galleryCategoryFilter, setGalleryCategoryFilter] = useState<'All' | GalleryCategory>('All');
+  const [newGalleryTitle, setNewGalleryTitle] = useState('');
+  const [newGalleryUrl, setNewGalleryUrl] = useState('');
+  const [newGalleryCategory, setNewGalleryCategory] = useState<Exclude<GalleryCategory, 'Featured Hot'>>('Personal Bedroom');
+  const [newGalleryFeatured, setNewGalleryFeatured] = useState(false);
+  const [isAddingGalleryImage, setIsAddingGalleryImage] = useState(false);
+  const [settingsGallerySearch, setSettingsGallerySearch] = useState('');
+  const [settingsGalleryFilter, setSettingsGalleryFilter] = useState<'All' | 'Custom' | Exclude<GalleryCategory, 'Featured Hot'>>('All');
 
   // Video Form Modal
   const [editingVideo, setEditingVideo] = useState<VideoItem | null>(null);
@@ -434,6 +470,175 @@ export const KinetivoAdmin: React.FC<KinetivoAdminProps> = ({
     });
   };
 
+  // Gallery Management Helpers (Add & Permanent Delete)
+  const resolvedGalleryPhotos = getResolvedGalleryPhotos(store.settings);
+
+  const handleToggleGalleryFeatured = (photo: GalleryPhotoItem) => {
+    const nextFeatured = !photo.featured;
+    if (photo.isCustom) {
+      onUpdateStore((prev) => ({
+        ...prev,
+        settings: {
+          ...prev.settings,
+          customGalleryImages: (prev.settings.customGalleryImages || []).map((item) =>
+            item.id === photo.id ? { ...item, featured: nextFeatured } : item
+          )
+        }
+      }));
+    } else {
+      onUpdateStore((prev) => {
+        const currentOverrides = prev.settings.galleryOverrides || {};
+        return {
+          ...prev,
+          settings: {
+            ...prev.settings,
+            galleryOverrides: {
+              ...currentOverrides,
+              [photo.filename]: { featured: nextFeatured }
+            }
+          }
+        };
+      });
+    }
+  };
+
+  const handleDeleteGalleryPhoto = (photo: GalleryPhotoItem) => {
+    if (photo.isCustom) {
+      onUpdateStore((prev) => ({
+        ...prev,
+        settings: {
+          ...prev.settings,
+          customGalleryImages: (prev.settings.customGalleryImages || []).filter((item) => item.id !== photo.id)
+        }
+      }));
+    } else {
+      onUpdateStore((prev) => {
+        const currentDeleted = prev.settings.deletedGalleryFilenames || [];
+        const nextDeleted = currentDeleted.includes(photo.filename)
+          ? currentDeleted
+          : [...currentDeleted, photo.filename];
+        const nextOverrides = { ...(prev.settings.galleryOverrides || {}) };
+        delete nextOverrides[photo.filename];
+        return {
+          ...prev,
+          settings: {
+            ...prev.settings,
+            deletedGalleryFilenames: nextDeleted,
+            galleryOverrides: nextOverrides
+          }
+        };
+      });
+    }
+    notifyAdmin(
+      cloudUserEmail
+        ? `Removed "${photo.title}" from front-end & synced to Cloud storage.`
+        : `Removed "${photo.title}" from front-end & local storage.`
+    );
+  };
+
+  const handleAddGalleryImageFromUrl = async () => {
+    const rawUrl = optimizeLinkedAssetUrl(newGalleryUrl);
+    if (!rawUrl) {
+      notifyAdmin('Paste an image URL or upload an image file.');
+      return;
+    }
+    if (!isApprovedAssetUrl(rawUrl)) {
+      notifyAdmin('Please enter a valid HTTPS or image URL.');
+      return;
+    }
+    if ((store.settings.customGalleryImages || []).length >= 60) {
+      notifyAdmin('Custom gallery limit (60 uploads) reached. Remove an older custom photo first.');
+      return;
+    }
+
+    setIsAddingGalleryImage(true);
+    try {
+      const finalSrc = rawUrl.startsWith('data:image/')
+        ? (await compressImageSource(rawUrl, { maxDimension: 900, quality: 0.72, maxChars: 65_000 })) || rawUrl
+        : rawUrl;
+      const item: CustomGalleryPhotoItem = {
+        id: `gal-custom-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        src: finalSrc,
+        title: newGalleryTitle.trim() || `Isabella ${newGalleryCategory} Portrait`,
+        category: normalizeGalleryCategory(newGalleryCategory),
+        featured: newGalleryFeatured,
+        addedAt: new Date().toISOString()
+      };
+      onUpdateStore((prev) => ({
+        ...prev,
+        settings: {
+          ...prev.settings,
+          customGalleryImages: [item, ...(prev.settings.customGalleryImages || [])]
+        }
+      }));
+      setNewGalleryUrl('');
+      setNewGalleryTitle('');
+      notifyAdmin(
+        cloudUserEmail
+          ? `Added "${item.title}" to ${item.category} & synced to Cloud storage!`
+          : `Added "${item.title}" to ${item.category} & local storage!`
+      );
+    } finally {
+      setIsAddingGalleryImage(false);
+    }
+  };
+
+  const handleUploadGalleryFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const existingCount = (store.settings.customGalleryImages || []).length;
+    const remainingSlots = Math.max(0, 60 - existingCount);
+    if (remainingSlots === 0) {
+      notifyAdmin('Custom gallery limit (60 uploads) reached. Delete a custom photo first.');
+      return;
+    }
+
+    const selected = Array.from(files).slice(0, remainingSlots);
+    setIsAddingGalleryImage(true);
+    try {
+      const createdItems: CustomGalleryPhotoItem[] = [];
+      for (let i = 0; i < selected.length; i += 1) {
+        const file = selected[i];
+        const rawDataUrl = await new Promise<string>((resolve) => {
+          compressImageFileToDataUrl(file, (url) => resolve(url), 900, 0.72);
+        });
+        const compactSrc = await compressImageSource(rawDataUrl, {
+          maxDimension: 900,
+          quality: 0.72,
+          maxChars: 65_000
+        });
+        const fallbackTitle = file.name
+          .replace(/\.[^.]+$/, '')
+          .replace(/[_-]+/g, ' ')
+          .trim();
+        createdItems.push({
+          id: `gal-custom-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`,
+          src: compactSrc || rawDataUrl,
+          title:
+            selected.length === 1 && newGalleryTitle.trim()
+              ? newGalleryTitle.trim()
+              : fallbackTitle || `Isabella ${newGalleryCategory}`,
+          category: normalizeGalleryCategory(newGalleryCategory),
+          featured: newGalleryFeatured,
+          addedAt: new Date().toISOString()
+        });
+      }
+
+      if (createdItems.length > 0) {
+        onUpdateStore((prev) => ({
+          ...prev,
+          settings: {
+            ...prev.settings,
+            customGalleryImages: [...createdItems, ...(prev.settings.customGalleryImages || [])]
+          }
+        }));
+        setNewGalleryTitle('');
+        notifyAdmin(`Added ${createdItems.length} photo${createdItems.length > 1 ? 's' : ''} to ${newGalleryCategory}!`);
+      }
+    } finally {
+      setIsAddingGalleryImage(false);
+    }
+  };
+
   // Helper: Word counter
   const countWords = (text: string) => text.trim().split(/\s+/).filter(Boolean).length;
 
@@ -518,12 +723,29 @@ export const KinetivoAdmin: React.FC<KinetivoAdminProps> = ({
     notifyAdmin('Standalone page deleted.');
   };
 
-  // Approve / Reject Comment
-  const handleCommentStatus = (id: string, status: 'approved' | 'rejected') => {
+  // Approve / Reject / Reset Comment
+  const handleCommentStatus = (id: string, status: 'pending' | 'approved' | 'rejected') => {
     onUpdateStore(prev => ({
       ...prev,
       comments: prev.comments.map(c => c.id === id ? { ...c, status } : c)
     }));
+    if (status === 'approved') {
+      notifyAdmin('Comment approved and published to post.');
+    } else if (status === 'rejected') {
+      notifyAdmin('Comment rejected and hidden from public view.');
+    } else {
+      notifyAdmin('Comment moved back to pending queue.');
+    }
+  };
+
+  const handleBulkApprovePendingComments = () => {
+    const pendingTotal = store.comments.filter(c => c.status === 'pending').length;
+    if (pendingTotal === 0) return;
+    onUpdateStore(prev => ({
+      ...prev,
+      comments: prev.comments.map(c => c.status === 'pending' ? { ...c, status: 'approved' } : c)
+    }));
+    notifyAdmin(`Approved ${pendingTotal} pending ${pendingTotal === 1 ? 'comment' : 'comments'}.`);
   };
 
   // Delete Comment
@@ -532,6 +754,7 @@ export const KinetivoAdmin: React.FC<KinetivoAdminProps> = ({
       ...prev,
       comments: prev.comments.filter(c => c.id !== id)
     }));
+    notifyAdmin('Comment removed.');
   };
 
   // Update Passcode
@@ -838,6 +1061,19 @@ jobs:
             </button>
 
             <button
+              onClick={() => setActiveTab('gallery')}
+              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl transition-colors ${activeTab === 'gallery' ? 'bg-[#c99757] text-stone-950 font-semibold shadow-md' : 'text-stone-400 hover:text-white hover:bg-stone-800/60'}`}
+            >
+              <div className="flex items-center gap-3">
+                <Camera className="w-4 h-4" />
+                <span>Gallery Archive</span>
+              </div>
+              <span className="px-1.5 py-0.5 rounded-full bg-stone-800 text-[#e7c792] text-[10px] font-bold tabular-nums">
+                {resolvedGalleryPhotos.length}
+              </span>
+            </button>
+
+            <button
               onClick={() => setActiveTab('showreel')}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors ${activeTab === 'showreel' ? 'bg-[#c99757] text-stone-950 font-semibold shadow-md' : 'text-stone-400 hover:text-white hover:bg-stone-800/60'}`}
             >
@@ -851,13 +1087,26 @@ jobs:
             >
               <div className="flex items-center gap-3">
                 <MessageSquare className="w-4 h-4" />
-                <span>Comments Review</span>
+                <span>Comment Moderation</span>
               </div>
               {store.comments.filter(c => c.status === 'pending').length > 0 && (
-                <span className="px-1.5 py-0.5 rounded-full bg-amber-500 text-black text-[10px] font-bold">
+                <span className="px-1.5 py-0.5 rounded-full bg-amber-500 text-black text-[10px] font-bold tabular-nums">
                   {store.comments.filter(c => c.status === 'pending').length}
                 </span>
               )}
+            </button>
+
+            <button
+              onClick={() => setActiveTab('analytics')}
+              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl transition-colors ${activeTab === 'analytics' ? 'bg-[#c99757] text-stone-950 font-semibold shadow-md' : 'text-stone-400 hover:text-white hover:bg-stone-800/60'}`}
+            >
+              <div className="flex items-center gap-3">
+                <BarChart3 className="w-4 h-4" />
+                <span>Analytics</span>
+              </div>
+              <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${activeTab === 'analytics' ? 'bg-stone-950/20 text-stone-950' : 'bg-stone-800 text-[#e7c792]'}`}>
+                D3
+              </span>
             </button>
 
             <button
@@ -1609,7 +1858,233 @@ jobs:
             </div>
           )}
 
-          {/* TAB 4: SITE-WIDE IMAGES, PAGE COPY & SHOWREEL STUDIO */}
+          {/* TAB 5: PHOTOGRAPHY GALLERY ARCHIVE */}
+          {activeTab === 'gallery' && (() => {
+            const featuredCount = resolvedGalleryPhotos.filter((p) => p.featured).length;
+            const customCount = resolvedGalleryPhotos.filter((p) => p.isCustom).length;
+            const query = gallerySearch.trim().toLowerCase();
+            const filteredAdminGallery = resolvedGalleryPhotos.filter((p) => {
+              const matchesCategory =
+                galleryCategoryFilter === 'All'
+                  ? true
+                  : galleryCategoryFilter === 'Featured Hot'
+                    ? p.featured
+                    : p.category === galleryCategoryFilter;
+              const matchesSearch =
+                !query ||
+                p.title.toLowerCase().includes(query) ||
+                p.category.toLowerCase().includes(query) ||
+                p.filename.toLowerCase().includes(query);
+              return matchesCategory && matchesSearch;
+            });
+
+            const assignPhotoToSlot = (slot: 'heroBgImage' | 'aboutImage' | 'conciergeImage' | 'showreelThumbnail', src: string, label: string) => {
+              onUpdateStore((prev) => ({
+                ...prev,
+                settings: {
+                  ...prev.settings,
+                  [slot]: src
+                },
+                pages: prev.pages.map((pg) =>
+                  (slot === 'aboutImage' && (pg.id === 'page-about' || pg.slug === 'about')) ||
+                  (slot === 'conciergeImage' && (pg.id === 'page-concierge' || pg.slug === 'concierge'))
+                    ? { ...pg, bannerImage: src }
+                    : pg
+                )
+              }));
+              notifyAdmin(`Updated ${label} image.`);
+            };
+
+            const galleryPageObj = store.pages.find((p) => p.id === 'page-gallery' || p.slug === 'gallery');
+
+            return (
+              <div className="space-y-6">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <h2 className="text-2xl font-bold text-white tracking-tight">
+                      Isabella Photography Gallery ({resolvedGalleryPhotos.length} Photos)
+                    </h2>
+                    <p className="text-xs text-stone-400 mt-1">
+                      Manage the public /gallery page ({featuredCount} Featured Hot · {customCount} Custom Added). Toggle Featured status, add or remove photos, copy URLs, or assign to Hero/About/Showreel.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('settings')}
+                      className="px-3.5 py-2 rounded-xl bg-stone-900 hover:bg-stone-800 border border-[#c99757]/40 text-xs font-medium text-[#f6e2bb] flex items-center gap-1.5"
+                    >
+                      <Plus className="w-3.5 h-3.5 text-[#c99757]" />
+                      <span>Add / Manage in Settings</span>
+                    </button>
+                    {galleryPageObj && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPagePreviewMode(false);
+                          setEditingPage(galleryPageObj);
+                          setIsPageModalOpen(true);
+                        }}
+                        className="px-3.5 py-2 rounded-xl bg-stone-900 hover:bg-stone-800 border border-stone-700 text-xs font-medium text-stone-200 flex items-center gap-1.5"
+                      >
+                        <Edit3 className="w-3.5 h-3.5 text-[#c99757]" />
+                        <span>Edit Gallery Page SEO</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleExplicitSaveSettings}
+                      className="px-4 py-2 rounded-xl bg-[#c99757] hover:bg-[#d6a567] text-stone-950 font-semibold text-xs flex items-center gap-1.5 shadow-md"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      <span>Save Gallery Settings</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Search & Category Controls */}
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-[#110f17] border border-stone-800 rounded-2xl p-4">
+                  <div className="relative w-full lg:w-72">
+                    <Search className="w-3.5 h-3.5 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input
+                      type="search"
+                      value={gallerySearch}
+                      onChange={(e) => setGallerySearch(e.target.value)}
+                      placeholder="Filter by title or filename..."
+                      className="w-full bg-[#09080d] border border-stone-700 rounded-xl pl-8 pr-3 py-2 text-xs text-white focus:outline-none focus:border-[#c99757]"
+                    />
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {(['All', ...GALLERY_CATEGORIES] as Array<'All' | GalleryCategory>).map((cat) => (
+                      <button
+                        key={cat}
+                        type="button"
+                        onClick={() => setGalleryCategoryFilter(cat)}
+                        className={`px-3 py-1.5 rounded-lg text-[11px] font-medium transition-colors whitespace-nowrap shrink-0 ${
+                          galleryCategoryFilter === cat
+                            ? 'bg-[#c99757] text-stone-950 font-semibold'
+                            : 'bg-stone-900 text-stone-300 hover:text-white border border-stone-800'
+                        }`}
+                      >
+                        {cat}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Admin Photo Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                  {filteredAdminGallery.map((photo) => (
+                    <div
+                      key={photo.id}
+                      className={`rounded-2xl border bg-[#110f17] overflow-hidden flex flex-col ${
+                        photo.featured ? 'border-[#c99757]/60' : 'border-stone-800'
+                      }`}
+                    >
+                      <div className="relative aspect-[4/3] bg-black overflow-hidden">
+                        <img
+                          src={photo.src}
+                          alt={photo.title}
+                          loading="lazy"
+                          className="w-full h-full object-cover object-top"
+                        />
+                        <div className="absolute top-2 left-2 flex items-center gap-1.5">
+                          {photo.featured && (
+                            <span className="px-2 py-0.5 rounded bg-[#c99757] text-stone-950 text-[10px] font-bold inline-flex items-center gap-1">
+                              <Flame className="w-3 h-3" />
+                              Featured
+                            </span>
+                          )}
+                          {photo.isCustom && (
+                            <span className="px-2 py-0.5 rounded bg-emerald-950/90 text-emerald-300 border border-emerald-500/40 text-[10px] font-semibold">
+                              Custom
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="p-3.5 space-y-2.5 flex-1 flex flex-col justify-between text-xs">
+                        <div>
+                          <div className="text-[10px] text-[#e7c792] font-medium truncate">
+                            {photo.category}
+                          </div>
+                          <div className="font-semibold text-white truncate" title={photo.title}>
+                            {photo.title}
+                          </div>
+                          <div className="text-[10px] font-mono text-stone-500 truncate mt-0.5">
+                            {photo.filename}
+                          </div>
+                        </div>
+
+                        <div className="space-y-1.5 pt-1 border-t border-stone-800/80">
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleToggleGalleryFeatured(photo)}
+                              className={`flex-1 py-1.5 px-2 rounded-lg text-[11px] font-medium border transition-colors inline-flex items-center justify-center gap-1 ${
+                                photo.featured
+                                  ? 'bg-[#c99757]/20 text-[#f6e2bb] border-[#c99757]/50'
+                                  : 'bg-stone-900 text-stone-300 border-stone-700 hover:bg-stone-800'
+                              }`}
+                            >
+                              <Flame className="w-3 h-3" />
+                              <span>{photo.featured ? 'Featured' : 'Feature'}</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteGalleryPhoto(photo)}
+                              className="py-1.5 px-2.5 rounded-lg bg-stone-900 hover:bg-red-950/80 border border-stone-700 hover:border-red-500/50 text-stone-300 hover:text-red-300 text-[11px] inline-flex items-center gap-1 transition-colors"
+                              title="Delete image from gallery & storage"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                              <span>Delete</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard?.writeText(photo.src).catch(() => {});
+                                notifyAdmin(`Copied ${photo.src.slice(0, 60)}`);
+                              }}
+                              className="py-1.5 px-2 rounded-lg bg-stone-900 hover:bg-stone-800 border border-stone-700 text-stone-300"
+                              title="Copy image URL path"
+                            >
+                              <Copy className="w-3 h-3" />
+                            </button>
+                          </div>
+
+                          <div className="flex items-center gap-1 text-[10px]">
+                            <button
+                              type="button"
+                              onClick={() => assignPhotoToSlot('heroBgImage', photo.src, 'Hero Showcase')}
+                              className="flex-1 py-1 px-1.5 rounded bg-stone-900 hover:bg-stone-800 border border-stone-800 text-stone-300 truncate"
+                            >
+                              Set Hero
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => assignPhotoToSlot('aboutImage', photo.src, 'About Portrait')}
+                              className="flex-1 py-1 px-1.5 rounded bg-stone-900 hover:bg-stone-800 border border-stone-800 text-stone-300 truncate"
+                            >
+                              Set About
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => assignPhotoToSlot('showreelThumbnail', photo.src, 'Showreel Cover')}
+                              className="flex-1 py-1 px-1.5 rounded bg-stone-900 hover:bg-stone-800 border border-stone-800 text-stone-300 truncate"
+                            >
+                              Set Reel
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* TAB 6: SITE-WIDE IMAGES, PAGE COPY & SHOWREEL STUDIO */}
           {activeTab === 'showreel' && (
             <div className="max-w-4xl space-y-8">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -1883,72 +2358,305 @@ jobs:
             </div>
           )}
 
-          {/* TAB 5: COMMENTS REVIEW */}
-          {activeTab === 'comments' && (
-            <div className="space-y-6">
-              <div>
-                <h2 className="text-2xl font-bold text-white tracking-tight">
-                  Comments Moderation & Approval Panel ({store.comments.length})
-                </h2>
-                <p className="text-xs text-stone-400 mt-1">
-                  Review, approve, or reject comments submitted by readers and VIP members.
-                </p>
-              </div>
+          {/* TAB 5: COMMENT MODERATION DASHBOARD */}
+          {activeTab === 'comments' && (() => {
+            const pendingCount = store.comments.filter(c => c.status === 'pending').length;
+            const approvedCount = store.comments.filter(c => c.status === 'approved').length;
+            const rejectedCount = store.comments.filter(c => c.status === 'rejected').length;
 
-              <div className="space-y-3">
-                {store.comments.map((com) => (
-                  <div
-                    key={com.id}
-                    className="p-4 bg-[#110f17] border border-stone-800 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4"
-                  >
+            const uniquePostTitles = Array.from(
+              new Set(store.comments.map(c => c.postTitle).filter(Boolean))
+            );
+
+            const searchLower = commentSearch.trim().toLowerCase();
+            const statusOrder: Record<string, number> = { pending: 0, approved: 1, rejected: 2 };
+
+            const filteredComments = store.comments
+              .filter(c => (commentStatusFilter === 'all' ? true : c.status === commentStatusFilter))
+              .filter(c => (commentPostFilter === 'all' ? true : c.postTitle === commentPostFilter))
+              .filter(c => {
+                if (!searchLower) return true;
+                return (
+                  (c.authorName || '').toLowerCase().includes(searchLower) ||
+                  (c.authorEmail || '').toLowerCase().includes(searchLower) ||
+                  (c.postTitle || '').toLowerCase().includes(searchLower) ||
+                  (c.commentText || '').toLowerCase().includes(searchLower)
+                );
+              })
+              .sort((a, b) => (statusOrder[a.status] ?? 9) - (statusOrder[b.status] ?? 9));
+
+            return (
+              <div className="space-y-6">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-2 text-xs text-[#e5b36b] font-medium">
+                      <MessageSquare className="w-3.5 h-3.5" />
+                      <span>Moderation Queue</span>
+                    </div>
+                    <h2 className="text-2xl font-bold text-white tracking-tight mt-0.5">
+                      Comment Moderation
+                    </h2>
+                    <p className="text-xs text-stone-400 mt-1">
+                      Inspect, approve, or reject user-submitted comments before they publish on Journal articles.
+                    </p>
+                  </div>
+
+                  {pendingCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleBulkApprovePendingComments}
+                      className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-stone-950 font-semibold text-xs inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 self-start sm:self-auto shadow-md"
+                    >
+                      <CheckCheck className="w-4 h-4" />
+                      <span>Approve All Pending ({pendingCount})</span>
+                    </button>
+                  )}
+                </div>
+
+                {/* Single-Elevation Moderation Metrics Strip */}
+                <div className="rounded-2xl bg-[#110f17] border border-stone-800 grid grid-cols-2 md:grid-cols-4 divide-y md:divide-y-0 md:divide-x divide-stone-800">
+                  <div className="p-4 space-y-1">
+                    <span className="text-[11px] font-medium text-stone-400 block">Total Comments</span>
+                    <span className="text-2xl font-bold text-white tabular-nums block">
+                      {store.comments.length.toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="p-4 space-y-1">
+                    <span className="text-[11px] font-medium text-amber-400 flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5" />
+                      <span>Pending Review</span>
+                    </span>
+                    <span className="text-2xl font-bold text-white tabular-nums block">
+                      {pendingCount.toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="p-4 space-y-1">
+                    <span className="text-[11px] font-medium text-emerald-400 flex items-center gap-1.5">
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Approved (Public)</span>
+                    </span>
+                    <span className="text-2xl font-bold text-white tabular-nums block">
+                      {approvedCount.toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="p-4 space-y-1">
+                    <span className="text-[11px] font-medium text-rose-400 flex items-center gap-1.5">
+                      <X className="w-3.5 h-3.5" />
+                      <span>Rejected (Hidden)</span>
+                    </span>
+                    <span className="text-2xl font-bold text-white tabular-nums block">
+                      {rejectedCount.toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Filter & Search Toolbar */}
+                <div className="p-4 rounded-2xl bg-[#110f17] border border-stone-800 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {(
+                      [
+                        { id: 'all', label: 'All', count: store.comments.length },
+                        { id: 'pending', label: 'Pending', count: pendingCount },
+                        { id: 'approved', label: 'Approved', count: approvedCount },
+                        { id: 'rejected', label: 'Rejected', count: rejectedCount }
+                      ] as const
+                    ).map((tab) => (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => setCommentStatusFilter(tab.id)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
+                          commentStatusFilter === tab.id
+                            ? 'bg-[#c99757] text-stone-950 font-semibold'
+                            : 'bg-[#09080d] text-stone-400 hover:text-white border border-stone-800'
+                        }`}
+                      >
+                        <span>{tab.label}</span>
+                        <span
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-bold tabular-nums ${
+                            commentStatusFilter === tab.id
+                              ? 'bg-stone-950/20 text-stone-950'
+                              : tab.id === 'pending' && tab.count > 0
+                                ? 'bg-amber-500/20 text-amber-300'
+                                : 'bg-stone-800 text-stone-300'
+                          }`}
+                        >
+                          {tab.count}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 flex-1 lg:max-w-xl justify-end">
+                    <div className="relative flex-1 min-w-[200px]">
+                      <Search className="w-3.5 h-3.5 text-stone-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        value={commentSearch}
+                        onChange={(e) => setCommentSearch(e.target.value)}
+                        placeholder="Search author, post, or comment text..."
+                        aria-label="Search comments"
+                        className="w-full bg-[#09080d] border border-stone-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder:text-stone-500 focus:outline-none focus:border-[#c99757]"
+                      />
+                    </div>
+
+                    <select
+                      value={commentPostFilter}
+                      onChange={(e) => setCommentPostFilter(e.target.value)}
+                      aria-label="Filter comments by post"
+                      className="bg-[#09080d] border border-stone-800 rounded-xl px-3 py-2 text-xs text-stone-200 focus:outline-none focus:border-[#c99757] max-w-[220px]"
+                    >
+                      <option value="all">All Posts ({uniquePostTitles.length})</option>
+                      {uniquePostTitles.map((title) => (
+                        <option key={title} value={title}>
+                          {title}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Comment Moderation List or Empty State */}
+                {filteredComments.length === 0 ? (
+                  <div className="p-10 rounded-2xl bg-[#110f17] border border-stone-800 text-center space-y-3">
+                    <MessageSquare className="w-8 h-8 text-stone-500 mx-auto" />
                     <div className="space-y-1">
-                      <div className="flex items-center gap-2 text-xs">
-                        <strong className="text-white">{com.authorName}</strong>
-                        <span className="text-stone-500">({com.authorEmail})</span>
-                        <span>·</span>
-                        <span className="text-[#c99757] font-medium">{com.postTitle}</span>
-                        <span>·</span>
-                        <span className="text-stone-500 text-[11px]">{com.createdAt}</span>
-                      </div>
-                      <p className="text-xs text-stone-300 bg-[#09080d] p-3 rounded-lg border border-stone-800">
-                        "{com.commentText}"
+                      <h3 className="text-sm font-semibold text-white">
+                        {commentStatusFilter === 'pending' && !commentSearch && commentPostFilter === 'all'
+                          ? 'No pending comments awaiting moderation'
+                          : 'No comments match the active filter'}
+                      </h3>
+                      <p className="text-xs text-stone-400 max-w-md mx-auto">
+                        {commentStatusFilter === 'pending' && !commentSearch && commentPostFilter === 'all'
+                          ? 'All user-submitted comments have been reviewed. New comments submitted on Journal posts will land here with Pending status.'
+                          : 'Try clearing your search term or switching back to view all comment statuses.'}
                       </p>
                     </div>
-
-                    <div className="flex items-center gap-2 shrink-0 self-end md:self-center">
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${com.status === 'approved' ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-500/30' : com.status === 'pending' ? 'bg-amber-950/80 text-amber-400 border border-amber-500/30' : 'bg-rose-950/80 text-rose-400 border border-rose-500/30'}`}>
-                        {com.status}
-                      </span>
-
-                      {com.status !== 'approved' && (
-                        <button
-                          onClick={() => handleCommentStatus(com.id, 'approved')}
-                          className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-black font-semibold text-xs transition-colors"
-                        >
-                          Approve
-                        </button>
-                      )}
-
-                      {com.status !== 'rejected' && (
-                        <button
-                          onClick={() => handleCommentStatus(com.id, 'rejected')}
-                          className="px-3 py-1.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-300 text-xs transition-colors"
-                        >
-                          Reject
-                        </button>
-                      )}
-
+                    {(commentStatusFilter !== 'all' || commentSearch || commentPostFilter !== 'all') && (
                       <button
-                        onClick={() => handleDeleteComment(com.id)}
-                        className="p-1.5 text-stone-500 hover:text-red-400 rounded hover:bg-stone-800 transition-colors"
+                        type="button"
+                        onClick={() => {
+                          setCommentStatusFilter('all');
+                          setCommentSearch('');
+                          setCommentPostFilter('all');
+                        }}
+                        className="px-4 py-2 rounded-xl bg-stone-900 hover:bg-stone-800 border border-stone-700 text-xs font-medium text-stone-200 transition-colors"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        Show All Comments
                       </button>
-                    </div>
+                    )}
                   </div>
-                ))}
+                ) : (
+                  <div className="space-y-3">
+                    {filteredComments.map((com) => {
+                      const hasEmail = Boolean(com.authorEmail && com.authorEmail.trim());
+                      return (
+                        <div
+                          key={com.id}
+                          className={`p-4 bg-[#110f17] border rounded-xl flex flex-col lg:flex-row lg:items-center justify-between gap-4 transition-colors ${
+                            com.status === 'pending'
+                              ? 'border-amber-500/35 hover:border-amber-500/55'
+                              : 'border-stone-800 hover:border-stone-700'
+                          }`}
+                        >
+                          <div className="space-y-2 min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                              <strong className="text-white">{com.authorName}</strong>
+                              {hasEmail && (
+                                <span className="text-stone-400 font-mono text-[11px]">
+                                  ({com.authorEmail})
+                                </span>
+                              )}
+                              <span className="text-stone-600" aria-hidden="true">·</span>
+                              <span className="text-[#c99757] font-medium truncate max-w-[320px]">
+                                {com.postTitle}
+                              </span>
+                              <span className="text-stone-600" aria-hidden="true">·</span>
+                              <span className="text-stone-400 text-[11px] tabular-nums">
+                                {com.createdAt}
+                              </span>
+                            </div>
+
+                            <p className="text-xs text-stone-200 bg-[#09080d] px-3.5 py-3 rounded-lg border border-stone-800/90 leading-relaxed">
+                              “{com.commentText}”
+                            </p>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-2 shrink-0 self-end lg:self-center">
+                            <span
+                              className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider whitespace-nowrap ${
+                                com.status === 'approved'
+                                  ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-500/30'
+                                  : com.status === 'pending'
+                                    ? 'bg-amber-950/80 text-amber-400 border border-amber-500/30'
+                                    : 'bg-rose-950/80 text-rose-400 border border-rose-500/30'
+                              }`}
+                            >
+                              {com.status}
+                            </span>
+
+                            {com.status !== 'approved' && (
+                              <button
+                                type="button"
+                                onClick={() => handleCommentStatus(com.id, 'approved')}
+                                className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-stone-950 font-semibold text-xs inline-flex items-center gap-1 transition-colors whitespace-nowrap shrink-0"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                                <span>Approve</span>
+                              </button>
+                            )}
+
+                            {com.status !== 'rejected' && (
+                              <button
+                                type="button"
+                                onClick={() => handleCommentStatus(com.id, 'rejected')}
+                                className="px-3 py-1.5 rounded-lg bg-stone-800 hover:bg-rose-950/80 hover:text-rose-300 border border-stone-700 hover:border-rose-500/40 text-stone-300 text-xs inline-flex items-center gap-1 transition-colors whitespace-nowrap shrink-0"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                                <span>Reject</span>
+                              </button>
+                            )}
+
+                            {com.status !== 'pending' && (
+                              <button
+                                type="button"
+                                onClick={() => handleCommentStatus(com.id, 'pending')}
+                                title="Move back to pending queue"
+                                aria-label={`Move comment by ${com.authorName} to pending`}
+                                className="p-1.5 text-stone-400 hover:text-amber-300 rounded-lg hover:bg-stone-800 transition-colors shrink-0"
+                              >
+                                <RotateCcw className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteComment(com.id)}
+                              title="Delete comment"
+                              aria-label={`Delete comment by ${com.authorName}`}
+                              className="p-1.5 text-stone-500 hover:text-red-400 rounded-lg hover:bg-stone-800 transition-colors shrink-0"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
-            </div>
+            );
+          })()}
+
+          {/* TAB 5B: D3.JS ANALYTICS DASHBOARD */}
+          {activeTab === 'analytics' && (
+            <AdminAnalyticsTab
+              store={store}
+              viewedItems={viewedItems}
+              likedItems={likedItems}
+              viewCounts={viewCounts}
+              onOpenTab={(tab) => setActiveTab(tab)}
+            />
           )}
 
           {/* TAB 6: VIP MEMBERS MANAGEMENT */}
@@ -2410,6 +3118,223 @@ jobs:
                   </div>
                 </div>
               </div>
+
+              {/* GALLERY IMAGES MANAGER (ADD & REMOVE) */}
+              {(() => {
+                const customCount = resolvedGalleryPhotos.filter((p) => p.isCustom).length;
+                const removedCount = (store.settings.deletedGalleryFilenames || []).length;
+                const settingsQuery = settingsGallerySearch.trim().toLowerCase();
+                const filteredSettingsPhotos = resolvedGalleryPhotos.filter((photo) => {
+                  const matchesFilter =
+                    settingsGalleryFilter === 'All'
+                      ? true
+                      : settingsGalleryFilter === 'Custom'
+                        ? Boolean(photo.isCustom)
+                        : photo.category === settingsGalleryFilter;
+                  const matchesSearch =
+                    !settingsQuery ||
+                    photo.title.toLowerCase().includes(settingsQuery) ||
+                    photo.category.toLowerCase().includes(settingsQuery) ||
+                    photo.filename.toLowerCase().includes(settingsQuery);
+                  return matchesFilter && matchesSearch;
+                });
+
+                return (
+                  <div className="p-6 rounded-2xl bg-[#14111c] border border-[#c99757]/40 shadow-xl space-y-5">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-[#c99757]/15 border border-[#c99757]/30 flex items-center justify-center text-[#e7c792]">
+                          <Camera className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <h3 className="text-base font-semibold text-white">
+                            Photography Gallery Manager — Add &amp; Remove Images
+                          </h3>
+                          <p className="text-xs text-stone-400 mt-0.5">
+                            {resolvedGalleryPhotos.length} Active Photos · {customCount}/60 Custom Added · {removedCount} Permanently Removed (Previously hidden images purged)
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('gallery')}
+                        className="px-3.5 py-1.5 rounded-lg bg-stone-900 hover:bg-stone-800 border border-stone-700 text-xs font-medium text-stone-200 self-start sm:self-auto"
+                      >
+                        Open Full Gallery View →
+                      </button>
+                    </div>
+
+                    {/* Add New Gallery Image Form */}
+                    <div className="p-4 rounded-xl bg-[#09080d] border border-stone-800 space-y-3">
+                      <div className="text-xs font-semibold text-[#e7c792] flex items-center gap-1.5">
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Add New Image to Gallery</span>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                        <div>
+                          <label className="block text-stone-400 mb-1">Photo Title</label>
+                          <input
+                            type="text"
+                            value={newGalleryTitle}
+                            onChange={(e) => setNewGalleryTitle(e.target.value)}
+                            placeholder="e.g. Evening Bedroom Portrait"
+                            className="w-full bg-[#110f17] border border-stone-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-[#c99757]"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-stone-400 mb-1">Gallery Category</label>
+                          <select
+                            value={newGalleryCategory}
+                            onChange={(e) =>
+                              setNewGalleryCategory(e.target.value as Exclude<GalleryCategory, 'Featured Hot'>)
+                            }
+                            className="w-full bg-[#110f17] border border-stone-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-[#c99757]"
+                          >
+                            {GALLERY_ASSIGNABLE_CATEGORIES.map((cat) => (
+                              <option key={cat} value={cat}>
+                                {cat}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="flex items-end pb-1.5">
+                          <label className="inline-flex items-center gap-2 cursor-pointer text-xs text-stone-200">
+                            <input
+                              type="checkbox"
+                              checked={newGalleryFeatured}
+                              onChange={(e) => setNewGalleryFeatured(e.target.checked)}
+                              className="rounded bg-stone-900 border-stone-700 text-[#c99757]"
+                            />
+                            <Flame className="w-3.5 h-3.5 text-[#c99757]" />
+                            <span>Mark as Featured Hot</span>
+                          </label>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col sm:flex-row gap-2.5 text-xs">
+                        <input
+                          type="url"
+                          value={newGalleryUrl}
+                          onChange={(e) => setNewGalleryUrl(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              void handleAddGalleryImageFromUrl();
+                            }
+                          }}
+                          placeholder="Paste direct image URL (HTTPS / GitHub / Google Drive)..."
+                          aria-label="Gallery image URL"
+                          className="flex-1 bg-[#110f17] border border-stone-700 rounded-lg px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-[#c99757]"
+                        />
+                        <button
+                          type="button"
+                          disabled={isAddingGalleryImage}
+                          onClick={handleAddGalleryImageFromUrl}
+                          className="px-4 py-2 rounded-lg bg-[#c99757] hover:bg-[#d6a567] text-stone-950 font-semibold text-xs inline-flex items-center justify-center gap-1.5 shrink-0 disabled:opacity-60"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>{isAddingGalleryImage ? 'Adding...' : 'Add Image'}</span>
+                        </button>
+                        <label className="px-4 py-2 rounded-lg bg-stone-900 hover:bg-stone-800 border border-[#c99757]/50 text-[#f6e2bb] font-semibold text-xs cursor-pointer inline-flex items-center justify-center gap-1.5 shrink-0">
+                          <Upload className="w-3.5 h-3.5" />
+                          <span>{isAddingGalleryImage ? 'Processing...' : 'Upload Photo(s)'}</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            multiple
+                            disabled={isAddingGalleryImage}
+                            className="hidden"
+                            onChange={(e) => {
+                              void handleUploadGalleryFiles(e.target.files);
+                              e.target.value = '';
+                            }}
+                          />
+                        </label>
+                      </div>
+                    </div>
+
+                    {/* Search & Remove Existing / Custom Gallery Images */}
+                    <div className="space-y-3">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                        <div className="relative flex-1">
+                          <Search className="w-3.5 h-3.5 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                          <input
+                            type="search"
+                            value={settingsGallerySearch}
+                            onChange={(e) => setSettingsGallerySearch(e.target.value)}
+                            placeholder="Search gallery images to inspect or delete..."
+                            className="w-full bg-[#09080d] border border-stone-700 rounded-lg pl-8 pr-3 py-2 text-xs text-white focus:outline-none focus:border-[#c99757]"
+                          />
+                        </div>
+                        <select
+                          value={settingsGalleryFilter}
+                          onChange={(e) =>
+                            setSettingsGalleryFilter(
+                              e.target.value as 'All' | 'Custom' | Exclude<GalleryCategory, 'Featured Hot'>
+                            )
+                          }
+                          className="bg-[#09080d] border border-stone-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-[#c99757]"
+                        >
+                          <option value="All">All Active ({resolvedGalleryPhotos.length})</option>
+                          <option value="Custom">Custom Added ({customCount})</option>
+                          {GALLERY_ASSIGNABLE_CATEGORIES.map((cat) => (
+                            <option key={cat} value={cat}>
+                              {cat}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="max-h-[420px] overflow-y-auto pr-1 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {filteredSettingsPhotos.map((photo) => (
+                          <div
+                            key={photo.id}
+                            className="flex items-center gap-3 p-2.5 rounded-xl bg-[#09080d] border border-stone-800 hover:border-stone-700 transition-colors"
+                          >
+                            <img
+                              src={photo.src}
+                              alt={photo.title}
+                              loading="lazy"
+                              className="w-14 h-14 rounded-lg object-cover object-top border border-stone-800 shrink-0"
+                            />
+                            <div className="min-w-0 flex-1">
+                              <div className="text-xs font-semibold text-white truncate" title={photo.title}>
+                                {photo.title}
+                              </div>
+                              <div className="text-[10px] text-[#e7c792] truncate">
+                                {photo.category}
+                                {photo.isCustom ? ' · Custom' : ''}
+                              </div>
+                              <div className="flex items-center gap-1.5 mt-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleGalleryFeatured(photo)}
+                                  className={`px-2 py-0.5 rounded text-[10px] font-medium border transition-colors ${
+                                    photo.featured
+                                      ? 'bg-[#c99757]/20 text-[#f6e2bb] border-[#c99757]/50'
+                                      : 'bg-stone-900 text-stone-400 border-stone-700 hover:text-white'
+                                  }`}
+                                >
+                                  {photo.featured ? 'Featured' : 'Feature'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteGalleryPhoto(photo)}
+                                  className="px-2 py-0.5 rounded bg-stone-900 hover:bg-red-950/80 border border-stone-700 hover:border-red-500/50 text-stone-300 hover:text-red-300 text-[10px] font-medium inline-flex items-center gap-1 transition-colors"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                  <span>Delete</span>
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* HEADER HTML CODE / ANALYTICS & AD CODE BOX */}
               <div className="p-6 rounded-2xl bg-[#14111c] border border-sky-500/35 shadow-xl space-y-5">

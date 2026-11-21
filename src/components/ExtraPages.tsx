@@ -5,8 +5,6 @@ import {
   Coffee,
   CheckCircle2,
   FileText,
-  Mail,
-  Phone,
   MapPin,
   ShieldCheck,
   Award,
@@ -21,7 +19,7 @@ import { UserSubscription, ExtraPageItem, SiteSettings, FrontEditableTexts } fro
 import { ISABELLA_AVATAR_IMG, ISABELLA_HERO_IMG, resolveAssetUrl } from '../defaultStore';
 import { renderRichMarkdown } from '../utils/markdown';
 import { compressImageFileToDataUrl } from '../utils/imageUpload';
-import { FAQSection } from './FAQSection';
+import { FAQCategory, FAQSection } from './FAQSection';
 
 interface ExtraPagesProps {
   activePage: 'about' | 'tips' | 'membership' | 'contact' | 'custom';
@@ -36,6 +34,7 @@ interface ExtraPagesProps {
   vipMonthlyPrice?: number;
   blackDiamondPrice?: number;
   onOpenVIPModal: () => void;
+  onNavigate?: (target: string) => void;
 }
 
 export const ExtraPages: React.FC<ExtraPagesProps> = ({
@@ -50,7 +49,8 @@ export const ExtraPages: React.FC<ExtraPagesProps> = ({
   onUpdateSettingsImage,
   vipMonthlyPrice = 5.99,
   blackDiamondPrice = 14.99,
-  onOpenVIPModal
+  onOpenVIPModal,
+  onNavigate
 }) => {
   const [contactSent, setContactSent] = useState(false);
   const [contactName, setContactName] = useState('');
@@ -76,43 +76,54 @@ export const ExtraPages: React.FC<ExtraPagesProps> = ({
   return (
     <div className="py-16 bg-gradient-to-b from-[#0b0710] via-[#140b1e] to-[#09080b] min-h-[75vh]">
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* CUSTOM ADMIN EXTRA PAGE (Pure English + Rich Text + Banner + Inline Images) */}
-        {activePage === 'custom' && customPage && (
-          <div className="space-y-10">
-            <div className="max-w-3xl mx-auto bg-[#161021]/90 border border-[#e5b36b]/30 rounded-3xl overflow-hidden gorgeous-card-glow">
-              {customPage.bannerImage && (
-                <div className="aspect-16/7 w-full overflow-hidden border-b border-white/10 bg-black">
-                  <img
-                    src={resolveAssetUrl(customPage.bannerImage)}
-                    alt={customPage.titleEn}
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-              )}
-              <div className="p-8 md:p-10 space-y-6">
-                <div className="flex items-center gap-2 text-xs text-[#e5b36b] uppercase tracking-widest font-semibold">
-                  <FileText className="w-4 h-4" />
-                  <span>Featured Page · Updated {customPage.lastUpdated}</span>
-                </div>
-                <h1 className="text-3xl md:text-5xl font-serif-display font-bold text-white tracking-tight">
-                  {customPage.titleEn}
-                </h1>
-                <div className="border-t border-white/10 pt-6 space-y-4 text-sm md:text-base text-stone-200 leading-relaxed">
-                  {renderRichMarkdown(customPage.content)}
+        {/* CUSTOM ADMIN EXTRA PAGE (Pure English + Rich Text + Banner + Integrated FAQ) */}
+        {activePage === 'custom' && customPage && (() => {
+          const slugLower = (customPage.slug || '').toLowerCase();
+          const customFaqDefaultCategory: FAQCategory = slugLower.includes('concierge')
+            ? 'concierge'
+            : slugLower.includes('blog') || slugLower.includes('journal')
+              ? 'blog'
+              : slugLower.includes('membership')
+                ? 'vip'
+                : 'all';
+
+          return (
+            <div className="space-y-10">
+              <div className="max-w-3xl mx-auto bg-[#161021]/90 border border-[#e5b36b]/30 rounded-3xl overflow-hidden gorgeous-card-glow">
+                {customPage.bannerImage && (
+                  <div className="aspect-16/7 w-full overflow-hidden border-b border-white/10 bg-black">
+                    <img
+                      src={resolveAssetUrl(customPage.bannerImage)}
+                      alt={customPage.titleEn}
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                )}
+                <div className="p-8 md:p-10 space-y-6">
+                  <div className="flex items-center gap-2 text-xs text-[#e5b36b] uppercase tracking-widest font-semibold">
+                    <FileText className="w-4 h-4" />
+                    <span>Featured Page · Updated {customPage.lastUpdated}</span>
+                  </div>
+                  <h1 className="text-3xl md:text-5xl font-serif-display font-bold text-white tracking-tight">
+                    {customPage.titleEn}
+                  </h1>
+                  <div className="border-t border-white/10 pt-6 space-y-4 text-sm md:text-base text-stone-200 leading-relaxed">
+                    {renderRichMarkdown(customPage.content)}
+                  </div>
                 </div>
               </div>
-            </div>
 
-            {(customPage.slug.includes('membership') || subscription.tier !== 'Free') && (
               <FAQSection
                 subscription={subscription}
                 vipMonthlyPrice={vipMonthlyPrice}
                 blackDiamondPrice={blackDiamondPrice}
+                defaultCategory={customFaqDefaultCategory}
                 onOpenVIPModal={onOpenVIPModal}
+                onNavigate={onNavigate}
               />
-            )}
-          </div>
-        )}
+            </div>
+          );
+        })()}
 
         {/* RICH ABOUT ISABELLA PAGE (Unified with Extra Pages Management) */}
         {activePage === 'about' && (
@@ -408,7 +419,9 @@ export const ExtraPages: React.FC<ExtraPagesProps> = ({
               subscription={subscription}
               vipMonthlyPrice={vipMonthlyPrice}
               blackDiamondPrice={blackDiamondPrice}
+              defaultCategory="vip"
               onOpenVIPModal={onOpenVIPModal}
+              onNavigate={onNavigate}
             />
           </div>
         )}
@@ -484,14 +497,6 @@ export const ExtraPages: React.FC<ExtraPagesProps> = ({
                       All messages are encrypted and reviewed privately by Isabella's personal concierge within 12 hours.
                     </p>
                     <div className="space-y-3 pt-2 border-t border-white/10">
-                      <div className="flex items-center gap-3 text-stone-200">
-                        <Mail className="w-4 h-4 text-[#e5b36b] shrink-0" />
-                        <span>{settings?.contactEmail || 'cuteisabellarose@gmail.com'}</span>
-                      </div>
-                      <div className="flex items-center gap-3 text-stone-200">
-                        <Phone className="w-4 h-4 text-[#e5b36b] shrink-0" />
-                        <span>{settings?.contactPhone || '+1 (555) 728-4902'}</span>
-                      </div>
                       <div className="flex items-center gap-3 text-stone-200">
                         <MapPin className="w-4 h-4 text-[#e5b36b] shrink-0" />
                         <span>Place Vendôme, Paris · Via Monte Napoleone, Milan</span>
@@ -600,6 +605,15 @@ export const ExtraPages: React.FC<ExtraPagesProps> = ({
                 )}
               </div>
             </div>
+
+            <FAQSection
+              subscription={subscription}
+              vipMonthlyPrice={vipMonthlyPrice}
+              blackDiamondPrice={blackDiamondPrice}
+              defaultCategory="concierge"
+              onOpenVIPModal={onOpenVIPModal}
+              onNavigate={onNavigate}
+            />
           </div>
         )}
       </div>

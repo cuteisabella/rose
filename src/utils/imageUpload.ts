@@ -11,7 +11,7 @@ const DEFAULT_QUALITY = 0.78;
 const DEFAULT_MAX_CHARS = 95_000;
 
 /**
- * Normalizes and optimizes known image CDN links (Unsplash, Pexels, Cloudinary, Google Drive)
+ * Normalizes and optimizes supported direct cloud image links (Cloudinary, Google Drive)
  * so remote assets download at crisp display dimensions instead of multi-megabyte originals.
  */
 export function optimizeLinkedAssetUrl(rawUrl?: string, fallback: string = ''): string {
@@ -23,34 +23,6 @@ export function optimizeLinkedAssetUrl(rawUrl?: string, fallback: string = ''): 
   try {
     const parsed = new URL(resolved);
     const host = parsed.hostname.toLowerCase();
-
-    if (host === 'images.unsplash.com') {
-      const existingW = Number(parsed.searchParams.get('w') || '0');
-      if (!existingW || existingW > 1280) {
-        parsed.searchParams.set('w', '1200');
-      }
-      if (!parsed.searchParams.get('q')) {
-        parsed.searchParams.set('q', '78');
-      } else {
-        const existingQ = Number(parsed.searchParams.get('q'));
-        if (existingQ > 85) parsed.searchParams.set('q', '78');
-      }
-      parsed.searchParams.set('auto', 'format');
-      if (!parsed.searchParams.get('fit')) {
-        parsed.searchParams.set('fit', 'crop');
-      }
-      return parsed.toString();
-    }
-
-    if (host === 'images.pexels.com') {
-      const existingW = Number(parsed.searchParams.get('w') || '0');
-      if (!existingW || existingW > 1280) {
-        parsed.searchParams.set('w', '1200');
-      }
-      parsed.searchParams.set('auto', 'compress');
-      parsed.searchParams.set('cs', 'tinysrgb');
-      return parsed.toString();
-    }
 
     if (host === 'res.cloudinary.com' && parsed.pathname.includes('/image/upload/')) {
       const marker = '/image/upload/';
@@ -209,9 +181,7 @@ export function compressImageSource(
         // avoid bloating Firestore with base64 unless it's a huge raw asset or data URL
         const isOptimizedCdn =
           isHttp &&
-          (normalized.includes('images.unsplash.com') ||
-            normalized.includes('images.pexels.com') ||
-            normalized.includes('res.cloudinary.com') ||
+          (normalized.includes('res.cloudinary.com') ||
             normalized.includes('lh3.googleusercontent.com'));
 
         if (isOptimizedCdn) {

@@ -67,6 +67,12 @@ const CORE_PAGE_ENTRIES: Array<{
     description: 'Long-form luxury lifestyle essays, travel notes, and private reflections.'
   },
   {
+    slug: 'gallery',
+    title: 'Photography Gallery',
+    target: 'gallery',
+    description: 'Full 146-photo visual archive and Featured Hot signature portraits.'
+  },
+  {
     slug: 'vault',
     title: '4K VIP Vault',
     target: 'vault',
@@ -148,11 +154,13 @@ export const SiteSearch: React.FC<SiteSearchProps> = ({
       const target =
         slugKey === 'about'
           ? 'about'
-          : slugKey === 'membership'
-            ? 'membership'
-            : slugKey === 'concierge' || slugKey === 'contact'
-              ? 'contact'
-              : `/page/${p.slug}`;
+          : slugKey === 'gallery'
+            ? 'gallery'
+            : slugKey === 'membership'
+              ? 'membership'
+              : slugKey === 'concierge' || slugKey === 'contact'
+                ? 'contact'
+                : `/page/${p.slug}`;
       pageItems.push({
         id: p.id,
         title: p.titleEn,

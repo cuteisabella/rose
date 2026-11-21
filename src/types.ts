@@ -163,6 +163,15 @@ export interface MemberItem {
   amountPaid: string;
 }
 
+export interface CustomGalleryPhotoItem {
+  id: string;
+  src: string;
+  title: string;
+  category: string;
+  featured?: boolean;
+  addedAt?: string;
+}
+
 export interface SiteSettings {
   adminPasscode: string; // Default: KineL1525 (can be updated)
   siteNameEn: string;
@@ -201,6 +210,9 @@ export interface SiteSettings {
   customAdSlotHtml?: string;
   headerMenuItems?: NavMenuItem[];
   footerMenuItems?: NavMenuItem[];
+  galleryOverrides?: Record<string, { featured?: boolean; hidden?: boolean }>;
+  customGalleryImages?: CustomGalleryPhotoItem[];
+  deletedGalleryFilenames?: string[];
   categories: string[];
 }
 

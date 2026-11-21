@@ -228,6 +228,34 @@ function buildSitePublicConfigPayload(store: AppStoreData): Record<string, unkno
     customAdSlotHtml: clampString(s.customAdSlotHtml, 19500),
     headerMenuItems: sanitizeMenuItems(s.headerMenuItems, 30),
     footerMenuItems: sanitizeMenuItems(s.footerMenuItems, 40),
+    ...((): Record<string, unknown> => {
+      const deletedList = Array.isArray(s.deletedGalleryFilenames)
+        ? s.deletedGalleryFilenames.slice(0, 300).map((fn) => clampString(fn, 200)).filter(Boolean)
+        : [];
+      const deletedSet = new Set(deletedList);
+      const cleanOverrides: Record<string, { featured: boolean }> = {};
+      if (s.galleryOverrides && typeof s.galleryOverrides === 'object') {
+        Object.entries(s.galleryOverrides).forEach(([fn, ov]) => {
+          if (!deletedSet.has(fn) && ov && typeof ov === 'object' && !ov.hidden && typeof ov.featured === 'boolean') {
+            cleanOverrides[fn] = { featured: Boolean(ov.featured) };
+          }
+        });
+      }
+      return {
+        galleryOverrides: cleanOverrides,
+        deletedGalleryFilenames: deletedList
+      };
+    })(),
+    customGalleryImages: Array.isArray(s.customGalleryImages)
+      ? s.customGalleryImages.slice(0, 60).map((item) => ({
+          id: clampString(item.id, 100),
+          src: clampString(item.src, 295000),
+          title: clampString(item.title, 200),
+          category: clampString(item.category, 80),
+          featured: Boolean(item.featured),
+          ...(item.addedAt ? { addedAt: clampString(item.addedAt, 60) } : {})
+        }))
+      : [],
     categories: (s.categories || []).slice(0, 50).map((c) => clampString(c, 100)).filter(Boolean),
     frontTexts: store.frontTexts,
     updatedAt: nowIso

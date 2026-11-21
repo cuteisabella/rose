@@ -35,6 +35,9 @@
         "customAdSlotHtml": { "type": "string", "maxLength": 20000 },
         "headerMenuItems": { "type": "array" },
         "footerMenuItems": { "type": "array" },
+        "galleryOverrides": { "type": "object" },
+        "customGalleryImages": { "type": "array" },
+        "deletedGalleryFilenames": { "type": "array" },
         "categories": { "type": "array" },
         "frontTexts": { "type": "object" },
         "updatedAt": { "type": "string", "maxLength": 100 }

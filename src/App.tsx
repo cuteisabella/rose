@@ -12,13 +12,19 @@ import {
   DEFAULT_STORE_DATA,
   DEFAULT_HEADER_MENU,
   DEFAULT_FOOTER_MENU,
+  ISABELLA_FASHION_IMG,
   formatTodayDate,
-  replaceLegacyAssetUrlsInText,
   resolveAssetUrl
 } from './defaultStore';
 import {
+  isApprovedAssetUrl,
+  normalizeGalleryCategory,
+  VALID_AISTUDIO_FILENAMES
+} from './galleryData';
+import {
   AppStoreData,
   BlogPost,
+  CustomGalleryPhotoItem,
   ExtraPageItem,
   LikedContentEntry,
   ViewedContentEntry,
@@ -34,6 +40,7 @@ import { Hero } from './components/Hero';
 import { BlogSection } from './components/BlogSection';
 import { MediaVault } from './components/MediaVault';
 import { TipsSection } from './components/TipsSection';
+import { GallerySection } from './components/GallerySection';
 import { ExtraPages } from './components/ExtraPages';
 import { MyProfile } from './components/MyProfile';
 import { NewsletterSignup } from './components/NewsletterSignup';
@@ -44,6 +51,7 @@ import { AdminLoginModal } from './components/AdminLoginModal';
 import { KinetivoAdmin } from './components/KinetivoAdmin';
 import { PostDetailModal } from './components/PostDetailModal';
 import { ShareUnlockModal, ShareGateTarget } from './components/ShareUnlockModal';
+import { IsabellaChatWidget } from './components/IsabellaChatWidget';
 import { stripMarkdownPreview } from './utils/markdown';
 import { compressImageSource, optimizeLinkedAssetUrl } from './utils/imageUpload';
 import { onAuthStateChanged } from 'firebase/auth';
@@ -62,7 +70,7 @@ import {
   testFirestoreConnection
 } from './firebase';
 
-type ActiveTab = 'home' | 'blog' | 'vault' | 'about' | 'tips' | 'membership' | 'contact' | 'profile' | 'custom';
+type ActiveTab = 'home' | 'blog' | 'gallery' | 'vault' | 'about' | 'tips' | 'membership' | 'contact' | 'profile' | 'custom';
 
 const BENGALI_CHAR_REGEX = /[\u0980-\u09FF]/;
 
@@ -70,12 +78,47 @@ const TAB_TO_PATH: Record<Exclude<ActiveTab, 'custom'>, string> = {
   home: '/',
   tips: '/tips',
   blog: '/journal',
+  gallery: '/gallery',
   vault: '/vault',
   membership: '/membership',
   about: '/about',
   contact: '/concierge',
   profile: '/profile'
 };
+
+function sanitizeApprovedUrl(rawUrl: string | undefined, fallback: string | undefined = ''): string {
+  const normalized = optimizeLinkedAssetUrl(rawUrl || '');
+  if (isApprovedAssetUrl(normalized)) {
+    return normalized;
+  }
+  return fallback ?? '';
+}
+
+function scrubMarkdownMediaUrls(text: string, fallback: string | undefined = ''): string {
+  if (!text) return '';
+  let cleaned = text.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_m, alt, url) => {
+    const safeUrl = sanitizeApprovedUrl(url, fallback);
+    return `![${alt}](${safeUrl})`;
+  });
+  cleaned = cleaned.replace(/(<img\b[^>]*\bsrc=["'])([^"']+)(["'])/gi, (_m, prefix, url, quote) => {
+    const safeUrl = sanitizeApprovedUrl(url, fallback);
+    return `${prefix}${safeUrl}${quote}`;
+  });
+  return cleaned;
+}
+
+function ensureMenuHasGallery(items: NavMenuItem[], galleryItem: NavMenuItem, anchorTarget: string): NavMenuItem[] {
+  const alreadyHasGallery = items.some((m) => m.id === galleryItem.id || normalizeFooterTargetKey(m.target) === 'gallery');
+  if (alreadyHasGallery) return items;
+  const copy = [...items];
+  const anchorIdx = copy.findIndex((m) => normalizeFooterTargetKey(m.target) === anchorTarget);
+  if (anchorIdx >= 0) {
+    copy.splice(anchorIdx + 1, 0, galleryItem);
+  } else {
+    copy.push(galleryItem);
+  }
+  return copy;
+}
 
 function sanitizeEnglishText(value: string | undefined, fallback: string = ''): string {
   if (!value || BENGALI_CHAR_REGEX.test(value)) return fallback;
@@ -141,7 +184,7 @@ function hydrateStore(raw: unknown, options?: { fromCloud?: boolean }): AppStore
     tipsSectionTitle: sanitizeEnglishText(data.frontTexts?.tipsSectionTitle, DEFAULT_STORE_DATA.frontTexts.tipsSectionTitle),
     tipsSectionSubtitle: sanitizeEnglishText(data.frontTexts?.tipsSectionSubtitle, DEFAULT_STORE_DATA.frontTexts.tipsSectionSubtitle),
     tipsFeatureHeadline: sanitizeEnglishText(data.frontTexts?.tipsFeatureHeadline, DEFAULT_STORE_DATA.frontTexts.tipsFeatureHeadline),
-    tipsFeatureArticle: replaceLegacyAssetUrlsInText(hydratedTipsFeatureArticle || ''),
+    tipsFeatureArticle: scrubMarkdownMediaUrls(hydratedTipsFeatureArticle || '', DEFAULT_STORE_DATA.settings.tipsFeatureImage1),
     aboutHeadline: sanitizeEnglishText(data.frontTexts?.aboutHeadline, DEFAULT_STORE_DATA.frontTexts.aboutHeadline),
     aboutBio: sanitizeEnglishText(data.frontTexts?.aboutBio, DEFAULT_STORE_DATA.frontTexts.aboutBio),
     conciergeHeadline: sanitizeEnglishText(data.frontTexts?.conciergeHeadline, DEFAULT_STORE_DATA.frontTexts.conciergeHeadline),
@@ -153,7 +196,10 @@ function hydrateStore(raw: unknown, options?: { fromCloud?: boolean }): AppStore
 
   const defaultBlogsById = new Map(DEFAULT_STORE_DATA.blogs.map((b) => [b.id, b]));
   const defaultTipsById = new Map(DEFAULT_STORE_DATA.tips.map((t) => [t.id, t]));
+  const defaultVideosById = new Map(DEFAULT_STORE_DATA.videos.map((v) => [v.id, v]));
   const defaultPagesById = new Map(DEFAULT_STORE_DATA.pages.map((p) => [p.id, p]));
+  const gallerySeedPage = defaultPagesById.get('page-gallery');
+  const faqSeedPage = defaultPagesById.get('page-faq');
 
   const rawPagesList = Array.isArray(data.pages)
     ? data.pages
@@ -163,13 +209,19 @@ function hydrateStore(raw: unknown, options?: { fromCloud?: boolean }): AppStore
           if (!fromCloud && p.id === 'page-2' && defaultSeed && (!p.content || p.content.length < 400 || !p.content.includes('##'))) {
             return { ...defaultSeed };
           }
+          const pageFallbackBanner =
+            defaultSeed?.bannerImage ||
+            (p.slug === 'membership-terms' ? DEFAULT_STORE_DATA.settings.showreelThumbnail : DEFAULT_STORE_DATA.settings.aboutImage);
           return {
             ...p,
             titleBn: '',
-            content: replaceLegacyAssetUrlsInText(p.content || ''),
+            content: scrubMarkdownMediaUrls(
+              p.content || '',
+              p.slug === 'about' ? ISABELLA_FASHION_IMG : pageFallbackBanner
+            ),
             status: (p.status === 'draft' ? 'draft' : 'published') as 'published' | 'draft',
             bannerImage: p.bannerImage
-              ? optimizeLinkedAssetUrl(p.bannerImage)
+              ? sanitizeApprovedUrl(p.bannerImage, pageFallbackBanner)
               : fromCloud
                 ? ''
                 : defaultSeed?.bannerImage || ''
@@ -198,50 +250,110 @@ function hydrateStore(raw: unknown, options?: { fromCloud?: boolean }): AppStore
     rawPagesList.forEach(pushUniquePage);
     if (!fromCloud) {
       DEFAULT_STORE_DATA.pages.forEach(pushUniquePage);
+    } else {
+      if (gallerySeedPage) pushUniquePage(gallerySeedPage);
+      if (faqSeedPage) pushUniquePage(faqSeedPage);
     }
   } else {
     DEFAULT_STORE_DATA.pages.forEach(pushUniquePage);
   }
 
+  const defaultGalleryHeaderItem = DEFAULT_HEADER_MENU.find((m) => m.target === 'gallery') || {
+    id: 'nav-gallery',
+    label: 'Gallery',
+    target: 'gallery',
+    visible: true
+  };
+  const defaultGalleryFooterItem = DEFAULT_FOOTER_MENU.find((m) => m.target === 'gallery') || {
+    id: 'fnav-gallery',
+    label: 'Photography Gallery',
+    target: 'gallery',
+    visible: true
+  };
+
   const rawHeaderMenu = Array.isArray(data.settings?.headerMenuItems) && data.settings!.headerMenuItems.length > 0
-    ? data.settings!.headerMenuItems
+    ? ensureMenuHasGallery(data.settings!.headerMenuItems, defaultGalleryHeaderItem, 'blog')
     : DEFAULT_HEADER_MENU;
 
   const rawFooterMenu = Array.isArray(data.settings?.footerMenuItems) && data.settings!.footerMenuItems.length > 0
-    ? deduplicateFooterMenu(data.settings!.footerMenuItems)
+    ? ensureMenuHasGallery(deduplicateFooterMenu(data.settings!.footerMenuItems), defaultGalleryFooterItem, 'blog')
     : DEFAULT_FOOTER_MENU;
 
   const resolvedAboutPage = mergedPages.find((p) => p.id === 'page-about' || p.slug === 'about');
   const resolvedConciergePage = mergedPages.find((p) => p.id === 'page-concierge' || p.slug === 'concierge');
 
   const resolvedLogoUrl =
-    data.settings?.logoUrl === ''
+    !data.settings?.logoUrl
       ? ''
-      : optimizeLinkedAssetUrl(data.settings?.logoUrl || DEFAULT_STORE_DATA.settings.logoUrl);
+      : sanitizeApprovedUrl(data.settings.logoUrl, '');
 
   const resolvedHeroBgImage =
     data.settings?.heroBgImage === ''
       ? ''
-      : optimizeLinkedAssetUrl(data.settings?.heroBgImage || DEFAULT_STORE_DATA.settings.heroBgImage);
+      : sanitizeApprovedUrl(data.settings?.heroBgImage, DEFAULT_STORE_DATA.settings.heroBgImage);
 
   const resolvedAvatarImage =
     data.settings?.avatarImage === ''
       ? ''
-      : optimizeLinkedAssetUrl(data.settings?.avatarImage || DEFAULT_STORE_DATA.settings.avatarImage);
+      : sanitizeApprovedUrl(data.settings?.avatarImage, DEFAULT_STORE_DATA.settings.avatarImage);
 
   const resolvedAboutImage =
     data.settings?.aboutImage === ''
       ? resolvedAboutPage?.bannerImage || ''
-      : optimizeLinkedAssetUrl(
-          data.settings?.aboutImage || resolvedAboutPage?.bannerImage || DEFAULT_STORE_DATA.settings.aboutImage
+      : sanitizeApprovedUrl(
+          data.settings?.aboutImage || resolvedAboutPage?.bannerImage,
+          DEFAULT_STORE_DATA.settings.aboutImage
         );
 
   const resolvedConciergeImage =
     data.settings?.conciergeImage === ''
       ? resolvedConciergePage?.bannerImage || ''
-      : optimizeLinkedAssetUrl(
-          data.settings?.conciergeImage || resolvedConciergePage?.bannerImage || DEFAULT_STORE_DATA.settings.conciergeImage
+      : sanitizeApprovedUrl(
+          data.settings?.conciergeImage || resolvedConciergePage?.bannerImage,
+          DEFAULT_STORE_DATA.settings.conciergeImage
         );
+
+  const deletedGallerySet = new Set<string>(
+    Array.isArray(data.settings?.deletedGalleryFilenames)
+      ? data.settings!.deletedGalleryFilenames.filter(
+          (fn): fn is string => typeof fn === 'string' && VALID_AISTUDIO_FILENAMES.has(fn)
+        )
+      : []
+  );
+
+  const sanitizedGalleryOverrides: Record<string, { featured?: boolean }> = {};
+  if (data.settings?.galleryOverrides && typeof data.settings.galleryOverrides === 'object') {
+    for (const [filename, val] of Object.entries(data.settings.galleryOverrides)) {
+      if (!VALID_AISTUDIO_FILENAMES.has(filename) || !val || typeof val !== 'object') continue;
+      if (val.hidden) {
+        // Permanently remove previously hidden images from frontend & storage
+        deletedGallerySet.add(filename);
+        continue;
+      }
+      if (typeof val.featured === 'boolean' && !deletedGallerySet.has(filename)) {
+        sanitizedGalleryOverrides[filename] = { featured: val.featured };
+      }
+    }
+  }
+
+  const sanitizedCustomGalleryImages: CustomGalleryPhotoItem[] = Array.isArray(data.settings?.customGalleryImages)
+    ? data.settings!.customGalleryImages
+        .filter(
+          (item): item is CustomGalleryPhotoItem =>
+            Boolean(item) &&
+            typeof item.id === 'string' &&
+            item.id.trim().length > 0 &&
+            isApprovedAssetUrl(item.src)
+        )
+        .map((item) => ({
+          id: item.id.trim(),
+          src: optimizeLinkedAssetUrl(item.src),
+          title: (item.title || 'Isabella Studio Portrait').trim(),
+          category: normalizeGalleryCategory(item.category),
+          featured: Boolean(item.featured),
+          ...(item.addedAt ? { addedAt: item.addedAt } : {})
+        }))
+    : [];
 
   const vipMonthlyPrice =
     typeof data.settings?.vipMonthlyPrice === 'number' && data.settings.vipMonthlyPrice > 0
@@ -259,34 +371,52 @@ function hydrateStore(raw: unknown, options?: { fromCloud?: boolean }): AppStore
 
   const hydratedVideos: VideoItem[] = Array.isArray(data.videos)
     ? data.videos.length > 0 || fromCloud
-      ? data.videos.map((v) => ({
-          ...v,
-          type: v.type === 'gallery' ? 'gallery' : 'video',
-          status: v.status === 'Draft' ? 'Draft' : 'Published',
-          titleBn: '',
-          thumbnailUrl: optimizeLinkedAssetUrl(v.thumbnailUrl),
-          galleryImages: Array.isArray(v.galleryImages)
-            ? v.galleryImages.map((img) => optimizeLinkedAssetUrl(img)).filter(Boolean)
-            : undefined,
-          featuredOnHome: v.featuredOnHome ?? true,
-        }))
+      ? data.videos.map((v) => {
+          const freshSeed = defaultVideosById.get(v.id);
+          const safeThumb = sanitizeApprovedUrl(
+            v.thumbnailUrl,
+            freshSeed?.thumbnailUrl || DEFAULT_STORE_DATA.settings.showreelThumbnail
+          );
+          let safeGallery: string[] | undefined;
+          if (Array.isArray(v.galleryImages)) {
+            const approvedGallery = v.galleryImages
+              .map((img) => optimizeLinkedAssetUrl(img))
+              .filter((img) => isApprovedAssetUrl(img));
+            safeGallery =
+              approvedGallery.length > 0
+                ? approvedGallery
+                : freshSeed?.galleryImages || [safeThumb];
+          }
+          return {
+            ...v,
+            type: v.type === 'gallery' ? 'gallery' : 'video',
+            status: v.status === 'Draft' ? 'Draft' : 'Published',
+            titleBn: '',
+            thumbnailUrl: safeThumb,
+            galleryImages: safeGallery,
+            featuredOnHome: v.featuredOnHome ?? true,
+          };
+        })
       : DEFAULT_STORE_DATA.videos
     : DEFAULT_STORE_DATA.videos;
 
   const hydratedBlogs: BlogPost[] = Array.isArray(data.blogs)
     ? data.blogs.length > 0 || fromCloud
-      ? data.blogs.map((b) => {
+      ? data.blogs.map((b, idx) => {
           const freshSeed = defaultBlogsById.get(b.id);
           if (!fromCloud && freshSeed && (!b.content || b.content.length < 1800)) {
             return { ...freshSeed, likes: b.likes || freshSeed.likes };
           }
+          const fallbackBanner =
+            freshSeed?.bannerImage ||
+            DEFAULT_STORE_DATA.blogs[idx % DEFAULT_STORE_DATA.blogs.length].bannerImage;
           return {
             ...b,
             titleBn: '',
-            content: replaceLegacyAssetUrlsInText(b.content || ''),
+            content: scrubMarkdownMediaUrls(b.content || '', fallbackBanner),
             status: b.status === 'draft' ? 'draft' : 'published',
             date: sanitizeNaturalDate(b.date, freshSeed?.date || formatTodayDate()),
-            bannerImage: optimizeLinkedAssetUrl(b.bannerImage),
+            bannerImage: sanitizeApprovedUrl(b.bannerImage, fallbackBanner),
             featuredOnHome: b.featuredOnHome ?? true,
           };
         })
@@ -295,17 +425,20 @@ function hydrateStore(raw: unknown, options?: { fromCloud?: boolean }): AppStore
 
   const hydratedTips: TipItem[] = Array.isArray(data.tips)
     ? data.tips.length > 0 || fromCloud
-      ? data.tips.map((t) => {
+      ? data.tips.map((t, idx) => {
           const freshSeed = defaultTipsById.get(t.id);
           if (!fromCloud && freshSeed && (!t.content || t.content.length < 1200)) {
             return { ...freshSeed, likes: t.likes || freshSeed.likes };
           }
+          const fallbackImg =
+            freshSeed?.image ||
+            DEFAULT_STORE_DATA.tips[idx % DEFAULT_STORE_DATA.tips.length].image;
           return {
             ...t,
-            content: replaceLegacyAssetUrlsInText(t.content || ''),
+            content: scrubMarkdownMediaUrls(t.content || '', fallbackImg),
             status: t.status === 'draft' ? 'draft' : 'published',
             date: sanitizeNaturalDate(t.date, freshSeed?.date || formatTodayDate()),
-            image: optimizeLinkedAssetUrl(t.image),
+            image: sanitizeApprovedUrl(t.image, fallbackImg),
           };
         })
       : DEFAULT_STORE_DATA.tips
@@ -323,11 +456,14 @@ function hydrateStore(raw: unknown, options?: { fromCloud?: boolean }): AppStore
       heroBgImage: resolvedHeroBgImage,
       avatarImage: resolvedAvatarImage,
       aboutImage: resolvedAboutImage,
-      tipsFeatureImage1: optimizeLinkedAssetUrl(data.settings?.tipsFeatureImage1 || DEFAULT_STORE_DATA.settings.tipsFeatureImage1),
-      tipsFeatureImage2: optimizeLinkedAssetUrl(data.settings?.tipsFeatureImage2 || DEFAULT_STORE_DATA.settings.tipsFeatureImage2),
-      tipsFeatureImage3: optimizeLinkedAssetUrl(data.settings?.tipsFeatureImage3 || DEFAULT_STORE_DATA.settings.tipsFeatureImage3),
+      tipsFeatureImage1: sanitizeApprovedUrl(data.settings?.tipsFeatureImage1, DEFAULT_STORE_DATA.settings.tipsFeatureImage1),
+      tipsFeatureImage2: sanitizeApprovedUrl(data.settings?.tipsFeatureImage2, DEFAULT_STORE_DATA.settings.tipsFeatureImage2),
+      tipsFeatureImage3: sanitizeApprovedUrl(data.settings?.tipsFeatureImage3, DEFAULT_STORE_DATA.settings.tipsFeatureImage3),
       conciergeImage: resolvedConciergeImage,
-      showreelThumbnail: optimizeLinkedAssetUrl(data.settings?.showreelThumbnail || DEFAULT_STORE_DATA.settings.showreelThumbnail),
+      showreelThumbnail: sanitizeApprovedUrl(data.settings?.showreelThumbnail, DEFAULT_STORE_DATA.settings.showreelThumbnail),
+      galleryOverrides: sanitizedGalleryOverrides,
+      customGalleryImages: sanitizedCustomGalleryImages,
+      deletedGalleryFilenames: Array.from(deletedGallerySet),
       headerMenuItems: rawHeaderMenu,
       footerMenuItems: rawFooterMenu,
       categories: Array.isArray(data.settings?.categories) && data.settings!.categories.length > 0
@@ -360,6 +496,9 @@ function resolveRouteFromPathname(
   }
   if (cleanPath === '/journal' || cleanPath === '/blog') {
     return { tab: 'blog', extraPage: null, blogPost: null };
+  }
+  if (cleanPath === '/gallery' || cleanPath === '/page/gallery') {
+    return { tab: 'gallery', extraPage: null, blogPost: null };
   }
   if (cleanPath === '/vault') {
     return { tab: 'vault', extraPage: null, blogPost: null };
@@ -627,6 +766,32 @@ function AppContent() {
     return [];
   });
 
+  // Reading Activity: Per-item View Counts (Stored in localStorage)
+  const [viewCounts, setViewCounts] = useState<Record<string, number>>(() => {
+    const initial: Record<string, number> = {};
+    try {
+      const savedCounts = localStorage.getItem('isabella_activity_view_counts');
+      if (savedCounts) {
+        const parsed = JSON.parse(savedCounts);
+        if (parsed && typeof parsed === 'object') {
+          Object.entries(parsed).forEach(([k, v]) => {
+            if (typeof v === 'number' && Number.isFinite(v) && v > 0) {
+              initial[k] = Math.floor(v);
+            }
+          });
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+    viewedItems.forEach((entry) => {
+      if (entry && typeof entry.id === 'string' && entry.id && !initial[entry.id]) {
+        initial[entry.id] = 1;
+      }
+    });
+    return initial;
+  });
+
   const recordLikedItem = useCallback((id: string, type: 'blog' | 'tip') => {
     setLikedItems((prev) => {
       const next: LikedContentEntry[] = [
@@ -638,13 +803,32 @@ function AppContent() {
   }, []);
 
   const recordViewedItem = useCallback((id: string, type: 'blog' | 'tip') => {
+    const today = formatTodayDate();
     setViewedItems((prev) => {
+      if (prev[0]?.id === id && prev[0]?.type === type && prev[0]?.viewedAt === today) {
+        return prev;
+      }
       const next: ViewedContentEntry[] = [
-        { id, type, viewedAt: formatTodayDate() },
+        { id, type, viewedAt: today },
         ...prev.filter((item) => item.id !== id)
       ].slice(0, 100);
       return next;
     });
+    setViewCounts((prev) => ({
+      ...prev,
+      [id]: (prev[id] || 0) + 1
+    }));
+  }, []);
+
+  const handleViewTip = useCallback(
+    (id: string) => {
+      recordViewedItem(id, 'tip');
+    },
+    [recordViewedItem]
+  );
+
+  const handleConsumeInitialTip = useCallback(() => {
+    setPendingTipId(null);
   }, []);
 
   const handleRemoveLikedItem = useCallback((id: string) => {
@@ -694,6 +878,13 @@ function AppContent() {
         setActiveTab('blog');
         setSelectedExtraPage(null);
         if (shouldPushUrl) pushPath('/journal');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        return;
+      }
+      if (target === 'gallery' || target === '/gallery' || target === '/page/gallery') {
+        setActiveTab('gallery');
+        setSelectedExtraPage(null);
+        if (shouldPushUrl) pushPath('/gallery');
         window.scrollTo({ top: 0, behavior: 'smooth' });
         return;
       }
@@ -856,6 +1047,15 @@ function AppContent() {
     }
   }, [viewedItems]);
 
+  // Save per-item view counts for admin analytics
+  useEffect(() => {
+    try {
+      localStorage.setItem('isabella_activity_view_counts', JSON.stringify(viewCounts));
+    } catch {
+      /* ignore quota error */
+    }
+  }, [viewCounts]);
+
   // Automatically record blog post views when opened (Home, Journal, Search, Direct URL)
   useEffect(() => {
     if (selectedBlog?.id) {
@@ -898,6 +1098,9 @@ function AppContent() {
 
   const createCloudCallbacks = useCallback((): CloudSyncCallbacks => {
     const applyCloudUpdate = (updater: (prev: AppStoreData) => AppStoreData) => {
+      if (hasLocalAdminEditsRef.current || cloudSaveTimerRef.current !== null) {
+        return;
+      }
       isApplyingCloudSnapshotRef.current = true;
       setStore((prev) => {
         const next = updater(prev);
@@ -1209,6 +1412,14 @@ function AppContent() {
       title = `${store.frontTexts.blogSectionTitle || 'Personal Journal'} | ${siteName}`;
       description = store.frontTexts.blogSectionSubtitle || defaultMetaDesc;
       canonicalPath = '/journal';
+    } else if (activeTab === 'gallery') {
+      const galleryPage = store.pages.find((p) => p.slug === 'gallery' && p.status === 'published');
+      title = galleryPage?.seoTitle?.trim() || `Isabella Photography Gallery | ${siteName}`;
+      description =
+        galleryPage?.seoDescription?.trim() ||
+        'Browse Isabella Rose’s complete 170-photo visual archive featuring personal bedroom diaries, coastal swimwear sets, twilight penthouse sets, boudoir elegance, and Parisian couture.';
+      keywords = galleryPage?.seoKeywords?.trim() || `Isabella Rose gallery, photography archive, ${siteName}`;
+      canonicalPath = '/gallery';
     } else if (activeTab === 'vault') {
       title = `${store.frontTexts.vaultSectionTitle || '4K VIP Vault'} | ${siteName}`;
       description = store.frontTexts.vaultSectionSubtitle || defaultMetaDesc;
@@ -1511,6 +1722,7 @@ function AppContent() {
     if (t === 'home' || t === '/') return activeTab === 'home';
     if (t === 'tips' || t === '/tips') return activeTab === 'tips';
     if (t === 'blog' || t === '/journal' || t === '/blog') return activeTab === 'blog' && !selectedBlog;
+    if (t === 'gallery' || t === '/gallery' || t === '/page/gallery') return activeTab === 'gallery';
     if (t === 'vault' || t === '/vault') return activeTab === 'vault';
     if (t === 'membership' || t === '/membership' || t === '/page/membership') return activeTab === 'membership';
     if (t === 'about' || t === '/about' || t === '/page/about') return activeTab === 'about';
@@ -1538,7 +1750,7 @@ function AppContent() {
           key={toastMessage}
           role="status"
           aria-live="polite"
-          className="animate-toast-enter fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 bg-[#171420] border border-[#c99757] text-[#e7c792] rounded-xl shadow-2xl text-xs font-medium"
+          className="animate-toast-enter fixed top-24 right-5 z-50 flex items-center gap-3 px-4 py-3 bg-[#171420]/95 backdrop-blur-md border border-[#c99757] text-[#e7c792] rounded-xl shadow-2xl text-xs font-medium max-w-[calc(100vw-2.5rem)]"
         >
           <Sparkles className="w-4 h-4 text-[#c99757] shrink-0" />
           <span>{toastMessage}</span>
@@ -1790,7 +2002,7 @@ function AppContent() {
                 }));
                 recordLikedItem(id, 'tip');
               }}
-              onViewTip={(id) => recordViewedItem(id, 'tip')}
+              onViewTip={handleViewTip}
               unlockedShareIds={unlockedShareIds}
             />
 
@@ -1845,6 +2057,12 @@ function AppContent() {
           </div>
         )}
 
+        {activeTab === 'gallery' && (
+          <div className="pt-20">
+            <GallerySection settings={store.settings} />
+          </div>
+        )}
+
         {activeTab === 'vault' && (
           <div className="pt-20">
             <MediaVault
@@ -1879,10 +2097,10 @@ function AppContent() {
                 }));
                 recordLikedItem(id, 'tip');
               }}
-              onViewTip={(id) => recordViewedItem(id, 'tip')}
+              onViewTip={handleViewTip}
               unlockedShareIds={unlockedShareIds}
               initialTipId={pendingTipId}
-              onConsumeInitialTip={() => setPendingTipId(null)}
+              onConsumeInitialTip={handleConsumeInitialTip}
             />
           </div>
         )}
@@ -1902,6 +2120,7 @@ function AppContent() {
               vipMonthlyPrice={store.settings.vipMonthlyPrice}
               blackDiamondPrice={store.settings.blackDiamondPrice}
               onOpenVIPModal={() => setIsVIPModalOpen(true)}
+              onNavigate={(target) => navigateByTarget(target)}
             />
           </div>
         )}
@@ -2039,13 +2258,21 @@ function AppContent() {
           onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
           aria-label="Back to top"
           title="Back to Top"
-          className={`fixed right-6 z-40 group flex items-center gap-2 px-3.5 py-3 rounded-full bg-[#161021]/95 hover:bg-gradient-to-r hover:from-[#e7c792] hover:to-[#c99757] text-[#e7c792] hover:text-stone-950 border border-[#e5b36b]/45 shadow-2xl backdrop-blur-md transition-all duration-200 hover:-translate-y-0.5 ${
-            toastMessage ? 'bottom-20' : 'bottom-6'
-          }`}
+          className="fixed bottom-5 right-5 z-30 group flex items-center gap-2 px-3 py-2.5 rounded-full bg-[#161021]/95 hover:bg-gradient-to-r hover:from-[#e7c792] hover:to-[#c99757] text-[#e7c792] hover:text-stone-950 border border-[#e5b36b]/45 shadow-2xl backdrop-blur-md transition-all duration-200 hover:-translate-y-0.5"
         >
           <ArrowUp className="w-4 h-4 transition-transform group-hover:-translate-y-0.5" />
           <span className="hidden sm:inline text-[11px] font-semibold uppercase tracking-wider">Top</span>
         </button>
+      )}
+
+      {/* ISABELLA AI COMPANION FLOATING CHAT */}
+      {!isAdminPanelOpen && (
+        <IsabellaChatWidget
+          avatarImage={store.settings.avatarImage}
+          currentPageLabel={activeTab === 'custom' && selectedExtraPage ? selectedExtraPage.titleEn : activeTab}
+          memberTier={subscription.tier}
+          hasBackToTop={showBackToTop}
+        />
       )}
 
       {/* MODALS */}
@@ -2104,6 +2331,9 @@ function AppContent() {
             );
           }}
           isLiveEditorActive={isLiveEditorActive}
+          viewedItems={viewedItems}
+          likedItems={likedItems}
+          viewCounts={viewCounts}
           cloudUserEmail={cloudUserEmail}
           cloudSyncStatus={cloudSyncStatus}
           cloudSyncError={cloudSyncError}
