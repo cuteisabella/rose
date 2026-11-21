@@ -1,9 +1,10 @@
 import { AppStoreData, BlogPost, NavMenuItem, TipItem } from './types';
-import heroPortraitImg from './assets/images/isabella_hero_portrait_1794504410847.jpg';
-import fashionEditorialImg from './assets/images/isabella_fashion_editorial_1794504411013.jpg';
-import lifestyleFoodImg from './assets/images/isabella_lifestyle_food_1794504411538.jpg';
-import vipLoungeImg from './assets/images/isabella_vip_lounge_1794504424845.jpg';
-import profileAvatarImg from './assets/images/isabella_profile_avatar_1794504438986.jpg';
+
+const heroPortraitImg = '/assets/aistudio/Woman_holding_champagne_in_apart__c15cd57a_fe05d6db.jpg';
+const fashionEditorialImg = '/assets/aistudio/Woman_holding_luxury_handbag_at_46db7a03_bc322181.jpg';
+const lifestyleFoodImg = '/assets/aistudio/Woman_drinking_champagne_at_rest__a00ed284_dcfda5a6.jpg';
+const vipLoungeImg = '/assets/aistudio/Woman_holding_wine_glass_bc793ac2_55ef21ab.jpg';
+const profileAvatarImg = '/assets/aistudio/Woman_smiling_in_portrait_f29e46b2_ce88126d.jpg';
 
 export function formatTodayDate(): string {
   try {
@@ -50,10 +51,33 @@ export const LEGACY_ASSET_MAP: Record<string, string> = {
   '/src/assets/images/isabella_profile_avatar_1794504438986.jpg': profileAvatarImg,
 };
 
+const LEGACY_BASENAME_MAP: Array<[string, string]> = [
+  ['isabella_hero_portrait_1794504410847', heroPortraitImg],
+  ['isabella_fashion_editorial_1794504411013', fashionEditorialImg],
+  ['isabella_lifestyle_food_1794504411538', lifestyleFoodImg],
+  ['isabella_vip_lounge_1794504424845', vipLoungeImg],
+  ['isabella_profile_avatar_1794504438986', profileAvatarImg],
+];
+
+export function replaceLegacyAssetUrlsInText(text: string): string {
+  if (!text) return text;
+  let updated = text;
+  for (const [legacyKey, replacement] of LEGACY_BASENAME_MAP) {
+    if (updated.includes(legacyKey)) {
+      const pattern = new RegExp(`(?:https?:\\/\\/[^)\\s"']+)?(?:\\/(?:src\\/)?assets(?:\\/images)?)?\\/?${legacyKey}[^)\\s"']*`, 'g');
+      updated = updated.replace(pattern, replacement);
+    }
+  }
+  return updated;
+}
+
 export function resolveAssetUrl(url: string | undefined, fallback: string = heroPortraitImg): string {
   const trimmed = (url || '').trim();
   if (!trimmed) return fallback;
   if (LEGACY_ASSET_MAP[trimmed]) return LEGACY_ASSET_MAP[trimmed];
+  for (const [legacyKey, replacement] of LEGACY_BASENAME_MAP) {
+    if (trimmed.includes(legacyKey)) return replacement;
+  }
 
   // Convert GitHub blob URLs -> raw.githubusercontent.com direct image URLs
   const ghBlobMatch = trimmed.match(/^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/blob\/(.+)$/i);

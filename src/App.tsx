@@ -13,6 +13,7 @@ import {
   DEFAULT_HEADER_MENU,
   DEFAULT_FOOTER_MENU,
   formatTodayDate,
+  replaceLegacyAssetUrlsInText,
   resolveAssetUrl
 } from './defaultStore';
 import {
@@ -140,7 +141,7 @@ function hydrateStore(raw: unknown, options?: { fromCloud?: boolean }): AppStore
     tipsSectionTitle: sanitizeEnglishText(data.frontTexts?.tipsSectionTitle, DEFAULT_STORE_DATA.frontTexts.tipsSectionTitle),
     tipsSectionSubtitle: sanitizeEnglishText(data.frontTexts?.tipsSectionSubtitle, DEFAULT_STORE_DATA.frontTexts.tipsSectionSubtitle),
     tipsFeatureHeadline: sanitizeEnglishText(data.frontTexts?.tipsFeatureHeadline, DEFAULT_STORE_DATA.frontTexts.tipsFeatureHeadline),
-    tipsFeatureArticle: hydratedTipsFeatureArticle,
+    tipsFeatureArticle: replaceLegacyAssetUrlsInText(hydratedTipsFeatureArticle || ''),
     aboutHeadline: sanitizeEnglishText(data.frontTexts?.aboutHeadline, DEFAULT_STORE_DATA.frontTexts.aboutHeadline),
     aboutBio: sanitizeEnglishText(data.frontTexts?.aboutBio, DEFAULT_STORE_DATA.frontTexts.aboutBio),
     conciergeHeadline: sanitizeEnglishText(data.frontTexts?.conciergeHeadline, DEFAULT_STORE_DATA.frontTexts.conciergeHeadline),
@@ -165,6 +166,7 @@ function hydrateStore(raw: unknown, options?: { fromCloud?: boolean }): AppStore
           return {
             ...p,
             titleBn: '',
+            content: replaceLegacyAssetUrlsInText(p.content || ''),
             status: (p.status === 'draft' ? 'draft' : 'published') as 'published' | 'draft',
             bannerImage: p.bannerImage
               ? optimizeLinkedAssetUrl(p.bannerImage)
@@ -281,6 +283,7 @@ function hydrateStore(raw: unknown, options?: { fromCloud?: boolean }): AppStore
           return {
             ...b,
             titleBn: '',
+            content: replaceLegacyAssetUrlsInText(b.content || ''),
             status: b.status === 'draft' ? 'draft' : 'published',
             date: sanitizeNaturalDate(b.date, freshSeed?.date || formatTodayDate()),
             bannerImage: optimizeLinkedAssetUrl(b.bannerImage),
@@ -299,6 +302,7 @@ function hydrateStore(raw: unknown, options?: { fromCloud?: boolean }): AppStore
           }
           return {
             ...t,
+            content: replaceLegacyAssetUrlsInText(t.content || ''),
             status: t.status === 'draft' ? 'draft' : 'published',
             date: sanitizeNaturalDate(t.date, freshSeed?.date || formatTodayDate()),
             image: optimizeLinkedAssetUrl(t.image),

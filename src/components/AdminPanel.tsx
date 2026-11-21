@@ -47,7 +47,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [postExcerpt, setPostExcerpt] = useState('');
   const [postContent, setPostContent] = useState('');
   const [postIsPrivate, setPostIsPrivate] = useState(false);
-  const [postImage, setPostImage] = useState('/src/assets/images/isabella_hero_portrait_1794504410847.jpg');
+  const [postImage, setPostImage] = useState('/assets/aistudio/Woman_holding_champagne_in_apart__c15cd57a_fe05d6db.jpg');
 
   // Auto-post generator state
   const [autoCount, setAutoCount] = useState<number>(10);
@@ -58,7 +58,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   // Manual media state
   const [mediaTitle, setMediaTitle] = useState('');
   const [mediaType, setMediaType] = useState<'image' | 'video'>('image');
-  const [mediaUrl, setMediaUrl] = useState('/src/assets/images/isabella_fashion_editorial_1794504411013.jpg');
+  const [mediaUrl, setMediaUrl] = useState('/assets/aistudio/Woman_holding_luxury_handbag_at_46db7a03_bc322181.jpg');
   const [mediaIsPrivate, setMediaIsPrivate] = useState(false);
   const [mediaCategory, setMediaCategory] = useState('Fashion');
 
@@ -360,11 +360,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       onChange={(e) => setPostImage(e.target.value)}
                       className="w-full bg-[#0d0b10] border border-stone-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-[#c99757]"
                     >
-                      <option value="/src/assets/images/isabella_hero_portrait_1794504410847.jpg">Editorial Penthouse Emerald</option>
-                      <option value="/src/assets/images/isabella_fashion_editorial_1794504411013.jpg">Paris Fashion Cafe</option>
-                      <option value="/src/assets/images/isabella_lifestyle_food_1794504411538.jpg">Rooftop Gourmet & Champagne</option>
-                      <option value="/src/assets/images/isabella_vip_lounge_1794504424845.jpg">Velvet VIP Lounge</option>
-                      <option value="/src/assets/images/isabella_profile_avatar_1794504438986.jpg">Golden Hour Glow Avatar</option>
+                      <option value="/assets/aistudio/Woman_holding_champagne_in_apart__c15cd57a_fe05d6db.jpg">Editorial Penthouse Emerald</option>
+                      <option value="/assets/aistudio/Woman_holding_luxury_handbag_at_46db7a03_bc322181.jpg">Paris Fashion Cafe</option>
+                      <option value="/assets/aistudio/Woman_drinking_champagne_at_rest__a00ed284_dcfda5a6.jpg">Rooftop Gourmet & Champagne</option>
+                      <option value="/assets/aistudio/Woman_holding_wine_glass_bc793ac2_55ef21ab.jpg">Velvet VIP Lounge</option>
+                      <option value="/assets/aistudio/Woman_smiling_in_portrait_f29e46b2_ce88126d.jpg">Golden Hour Glow Avatar</option>
                     </select>
                   </div>
 
@@ -519,11 +519,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       onChange={(e) => setMediaUrl(e.target.value)}
                       className="w-full bg-[#0d0b10] border border-stone-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-[#c99757]"
                     >
-                      <option value="/src/assets/images/isabella_hero_portrait_1794504410847.jpg">Editorial Penthouse Emerald</option>
-                      <option value="/src/assets/images/isabella_fashion_editorial_1794504411013.jpg">Paris Fashion Cafe</option>
-                      <option value="/src/assets/images/isabella_lifestyle_food_1794504411538.jpg">Rooftop Gourmet & Champagne</option>
-                      <option value="/src/assets/images/isabella_vip_lounge_1794504424845.jpg">Velvet VIP Lounge</option>
-                      <option value="/src/assets/images/isabella_profile_avatar_1794504438986.jpg">Golden Hour Glow Avatar</option>
+                      <option value="/assets/aistudio/Woman_holding_champagne_in_apart__c15cd57a_fe05d6db.jpg">Editorial Penthouse Emerald</option>
+                      <option value="/assets/aistudio/Woman_holding_luxury_handbag_at_46db7a03_bc322181.jpg">Paris Fashion Cafe</option>
+                      <option value="/assets/aistudio/Woman_drinking_champagne_at_rest__a00ed284_dcfda5a6.jpg">Rooftop Gourmet & Champagne</option>
+                      <option value="/assets/aistudio/Woman_holding_wine_glass_bc793ac2_55ef21ab.jpg">Velvet VIP Lounge</option>
+                      <option value="/assets/aistudio/Woman_smiling_in_portrait_f29e46b2_ce88126d.jpg">Golden Hour Glow Avatar</option>
                       <option value="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4">Sample 4K Video Reel</option>
                     </select>
                   </div>

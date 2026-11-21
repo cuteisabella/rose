@@ -1,4 +1,5 @@
 import React from 'react';
+import { resolveAssetUrl } from '../defaultStore';
 
 function renderInlineFormatting(text: string): React.ReactNode[] {
   // Supports **bold** and *italic*
@@ -31,10 +32,10 @@ export function renderRichMarkdown(content: string): React.ReactNode {
     const imageMatch = block.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
     if (imageMatch) {
       const alt = imageMatch[1] || 'Editorial Visual';
-      const src = imageMatch[2].trim();
+      const src = resolveAssetUrl(imageMatch[2].trim());
       return (
         <figure key={idx} className="my-6 rounded-2xl overflow-hidden border border-[#e5b36b]/25 bg-black/60 shadow-xl">
-          <img src={src} alt={alt} className="w-full max-h-[480px] object-cover" />
+          <img src={src} alt={alt} referrerPolicy="no-referrer" className="w-full max-h-[480px] object-cover" />
           {alt && alt !== 'Editorial Image' && (
             <figcaption className="px-4 py-2 text-[11px] text-stone-400 italic border-t border-white/10">
               {alt}
